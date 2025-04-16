@@ -1,0 +1,8 @@
+Best step: 66000
+model-0.pth
+model-11000.pth
+model-22000.pth
+model-33000.pth
+model-44000.pth
+model-55000.pth
+model-66000.pth

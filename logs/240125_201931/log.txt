@@ -1,0 +1,7 @@
+01/25 20:19:31 [INFO] root - Output and logs will be saved to logs\240125_201931
+01/25 20:19:31 [INFO] regtr.cvhelpers.misc - Command: C:\Users\chenp\AppData\Roaming\Python\Python310\site-packages\ipykernel_launcher.py --f=c:\Users\chenp\AppData\Roaming\jupyter\runtime\kernel-v2-59045B5jUZeXvre2.json
+01/25 20:19:31 [INFO] regtr.cvhelpers.misc - Source is from Commit 95412c13 (2023-09-06): Fixed one small BUG in test_script.py!
+01/25 20:19:32 [INFO] regtr.cvhelpers.misc - Arguments: 
+01/25 20:19:33 [INFO] RegTR - Instantiating model RegTR
+01/25 20:19:33 [INFO] RegTR - Loss weighting: {'overlap_5': 1.0, 'feature_5': 0.1, 'corr_5': 1.0, 'feature_un': 0.0}
+01/25 20:19:33 [INFO] RegTR - Config: d_embed:64, nheads:8, pre_norm:True, use_pos_emb:True, sa_val_has_pos_emb:True, ca_val_has_pos_emb:True

@@ -1,0 +1,4 @@
+01/08 21:31:25 [INFO] root - Output and logs will be saved to logs\240108_213125
+01/08 21:31:25 [INFO] regtr.cvhelpers.misc - Command: C:\Users\chenp\AppData\Roaming\Python\Python310\site-packages\ipykernel_launcher.py --f=c:\Users\chenp\AppData\Roaming\jupyter\runtime\kernel-v2-29508EjVZmLzFiZR1.json
+01/08 21:31:25 [INFO] regtr.cvhelpers.misc - Source is from Commit 95412c13 (2023-09-06): Fixed one small BUG in test_script.py!
+01/08 21:31:26 [INFO] regtr.cvhelpers.misc - Arguments: 

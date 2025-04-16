@@ -1,0 +1,1495 @@
+diff --git a/.gitignore b/.gitignore
+index 16fe4fc..3b3fb3a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -15,6 +15,11 @@ mesh_dataset/segmentations
+ mesh_dataset/test_dataset
+ mesh_dataset/oct_outputs
+ mesh_dataset/landmarks
++mesh_dataset/ear_dataset_test
++mesh_dataset/DIOME_FanShapeCorr
++mesh_dataset/ear_dataset_percentage
++mesh_dataset/ear_dataset_same_percentage
++mesh_dataset/ear_dataset_test
+ mesh_dataset/baselines
+ mesh_dataset/oct_outputs
+ mesh_dataset/oct_outputs1
+diff --git a/config/eardataset_regtr.yaml b/config/eardataset_regtr.yaml
+index 0f4c89c..5aa4f01 100644
+--- a/config/eardataset_regtr.yaml
++++ b/config/eardataset_regtr.yaml
+@@ -4,7 +4,7 @@ general:
+ dataset:
+     dataset: eardataset
+     root: 'mesh_dataset/ear_dataset/'
+-    oct_root: mesh_dataset/oct_outputs/*.npy
++    oct_root: mesh_dataset/DIOME_FanShapeCorr
+     augment_noise: 0.005
+     perturb_pose: small
+     train_batch_size: 2
+diff --git a/d2ear_IPCAI2023_images/number_of_points_to_mde.png b/d2ear_IPCAI2023_images/number_of_points_to_mde.png
+deleted file mode 100644
+index 2a5a12e..0000000
+Binary files a/d2ear_IPCAI2023_images/number_of_points_to_mde.png and /dev/null differ
+diff --git a/mesh_dataset/ear_dataset_setup.py b/mesh_dataset/ear_dataset_setup.py
+index 23b8eb0..6354451 100644
+--- a/mesh_dataset/ear_dataset_setup.py
++++ b/mesh_dataset/ear_dataset_setup.py
+@@ -17,6 +17,8 @@ from sklearn.model_selection import train_test_split
+ from sklearn.neighbors import KDTree
+ from vtk.util.numpy_support import vtk_to_numpy
+ 
++from tqdm import tqdm
++
+ import vtkutils
+ 
+ random_state = 0
+@@ -24,7 +26,7 @@ random.seed(10)
+ 
+ mean, std = [], []
+ 
+-root_path = 'ear_dataset'
++root_path = 'ear_dataset_same_percentage'
+ 
+ # Extract paths from dataset
+ # Only these with object
+@@ -41,7 +43,7 @@ malleus = [-15.2788639, -12.0986271, 9.47885704]
+ stape = [-17.125576, -15.1159573, 10.5758705]
+ incus = [-17.3455696, -15.1841612, 11.0382509]
+ 
+-pre_surface = trm.load('ear_dataset/pre_surface.stl')
++pre_surface = trm.load(f'ear_dataset/pre_surface.stl')
+ points_pre = pre_surface.vertices
+ 
+ reader = vtk.vtkXMLPolyDataReader()#
+@@ -72,6 +74,23 @@ def artifacting(vert, faces, centerPoint, surfaceAmount, random_noise=False, mov
+     return noisy_vert
+ 
+ def artifactSample(points_intra):
++    faces = objs[0].faces
++    inc = artifacting(points_intra[segmentation == 0], faces, [incus], surfaceAmount=7.5/100,random_noise=True)
++    inc_seg = np.zeros(len(inc))
++
++    faces = objs[1].faces
++    mal = artifacting(points_intra[segmentation == 1], faces, [malleus], surfaceAmount=25/100,random_noise=True)
++    mal_seg = np.zeros(len(mal)) + 1
++
++    faces = objs[2].faces
++    tymp = artifacting(points_intra[segmentation == 2], faces, [umbo], surfaceAmount=82.5/100,random_noise=True)
++    tymp_seg = np.zeros(len(tymp)) + 2
++
++    faces = objs[3].faces
++    stap = artifacting(points_intra[segmentation == 3], faces, [stape], surfaceAmount=5/100,random_noise=True)
++    stap_seg = np.zeros(len(stap)) + 3
++
++    """ Original code
+     faces = objs[0].faces
+     inc = artifacting(points_intra[segmentation == 0], faces, [incus], surfaceAmount=random.randint(5, 10)/100,random_noise=True)
+     inc_seg = np.zeros(len(inc))
+@@ -86,7 +105,7 @@ def artifactSample(points_intra):
+ 
+     faces = objs[3].faces
+     stap = artifacting(points_intra[segmentation == 3], faces, [stape], surfaceAmount=random.randint(3, 7)/100,random_noise=True)
+-    stap_seg = np.zeros(len(stap)) + 3
++    stap_seg = np.zeros(len(stap)) + 3 """
+ 
+     noisy_points_intra = np.concatenate([i for i in [inc, mal, tymp, stap] if len(i) != 0], axis=0)
+     intra_segmentation = np.concatenate([i for i in [inc_seg, mal_seg, tymp_seg, stap_seg] if len(i) != 0], axis=0)
+@@ -103,7 +122,7 @@ def artifactSample(points_intra):
+     return noisy_points_intra, intra_segmentation, indices
+ 
+ 
+-for path in paths:
++for path in tqdm(paths):
+     # SET PATHS
+     intra = path + '/intra_surface.stl'
+     cache = path + '/data_cached.pkl'
+@@ -130,8 +149,8 @@ for path in paths:
+ 
+ # Make train 90%, val 5%, test 5% split
+ 
+-paths_train, paths_val = train_test_split(paths, test_size=0.91225, random_state=random_state)
+-paths_val, paths_test = train_test_split(paths_val, test_size=0.4725, random_state=random_state)
++paths_train, paths_val = train_test_split(paths, train_size=1, random_state=random_state)
++paths_val, paths_test = train_test_split(paths_val, train_size=1, random_state=random_state)
+ 
+ metadata = dict(
+     train=paths_train, 
+diff --git a/mesh_dataset/ear_dataset_setup_series.py b/mesh_dataset/ear_dataset_setup_series.py
+index 6b576f0..0d29f85 100644
+--- a/mesh_dataset/ear_dataset_setup_series.py
++++ b/mesh_dataset/ear_dataset_setup_series.py
+@@ -26,9 +26,11 @@ random.seed(10)
+ 
+ mean, std = [], []
+ 
++root_path = 'ear_dataset'
++
+ # Extract paths from dataset
+ # Only these with object
+-paths = [i.replace('\\', '/') for i in glob('ear_dataset_series/??????')]
++paths = [i.replace('\\', '/') for i in glob(f'{root_path}/??????')]
+ 
+ # ear_segmentation.pkl is a pickle file which contains the segmentation for each point in mean model
+ with open('ear_segmentation.pkl', 'rb') as f:
+@@ -133,8 +135,8 @@ for path in tqdm.tqdm(paths):
+ 
+ # Make train 90%, val 5%, test 5% split
+ 
+-paths_train, paths_val = train_test_split(paths, test_size=0.91225, random_state=random_state)
+-paths_val, paths_test = train_test_split(paths_val, test_size=0.4725, random_state=random_state)
++paths_train, paths_val = train_test_split(paths, train_size=0.91225, random_state=random_state)
++paths_val, paths_test = train_test_split(paths_val, train_size=0.4725, random_state=random_state)
+ 
+ metadata = dict(
+     type='ear_dataset_series',
+@@ -147,5 +149,5 @@ metadata = dict(
+     std=mean_fn(std)
+ )
+ 
+-with open('ear_dataset/metadata.pkl', 'wb') as f:
++with open(f'{root_path}/metadata.pkl', 'wb') as f:
+     dump(metadata, f)
+diff --git a/mesh_dataset/read_ear_data_real.py b/mesh_dataset/read_ear_data_real.py
+index 047007e..7090a81 100644
+--- a/mesh_dataset/read_ear_data_real.py
++++ b/mesh_dataset/read_ear_data_real.py
+@@ -3,7 +3,7 @@ Reads all .stl files from segments folder of a sample
+ concatenation > centering > point sampling
+ Usage: python read_ear_data_real [PATH TO REAL EAR DATA]
+ [PATH TO REAL EAR DATA]/*/segments/*.stl
+-"""
++
+ 
+ from glob import glob
+ import numpy as np
+@@ -46,4 +46,174 @@ for sample in glob(f'{data_path}/*/segments'):
+ 
+     oct_pcd = o3d.geometry.PointCloud()
+     oct_pcd.points = o3d.utility.Vector3dVector(np.array(points_filtered))
+-    o3d.io.write_point_cloud(f'oct_outputs/{sample_name}.ply', oct_pcd)
+\ No newline at end of file
++    o3d.io.write_point_cloud(f'oct_outputs/{sample_name}.ply', oct_pcd) """
++
++
++import os
++import glob
++import torch
++from torch.utils.data import Dataset
++import yaml
++import json
++import trimesh as trm
++import numpy as np
++from pickle import dump, load
++import trimesh as trm
++
++from scipy.spatial.transform import Rotation as R
++rot_mat = R.from_euler('xyz', [230, -10, 10], degrees=True).as_matrix()
++
++np.random.seed(0)
++
++class OCTSample():
++    def __init__(self, sample_folder) -> None:
++        self.sample_folder = sample_folder
++        self.idx = int(os.path.basename(sample_folder).split("_")[1])
++
++    def load_metadata(self, metadata_path):
++        with open(metadata_path, 'r') as f:
++            metadata = yaml.load(f, Loader=yaml.FullLoader)
++        return metadata
++
++
++    def load_landmarks(self, center, rotation, flip=False):
++        landmarks_folder = os.path.join(self.sample_folder, "annotations", "merged", "landmarks")
++        landmarks_filename_list = [
++            "annulus.json",
++            "umbo.json",
++            #"short_process_of_malleus.json",
++            "malleus_handle.json",
++            "long_process_of_incus.json",
++            #"incus.json",
++            "stapes.json"
++        ]
++
++        landmark_names = [
++            "anulus",
++            "Umbo",
++            #"short_process_of_malleus",
++            "malleus handle",
++            "long process of incus",
++            #"incus",
++            "stape"
++        ]
++        
++
++        landmarks_dict = {}
++        for u, f in enumerate(landmarks_filename_list):
++            if os.path.exists(os.path.join(landmarks_folder, f)):
++                with open(os.path.join(landmarks_folder, f), 'r') as f:
++                    landmarks_json = json.load(f)
++                    # landmarks_json_list.append(json.load(f))
++                    landmarks_points = np.array([c["position"]  for c in landmarks_json["markups"][0]["controlPoints"]])
++                    if flip:
++                        landmarks_points = landmarks_points * [-1, 1, 1] 
++                    landmarks_points = (rotation @ landmarks_points.T).T 
++                landmarks_dict[landmark_names[u]] = landmarks_points - center
++
++        return landmarks_dict
++
++
++    def load(self, ):
++        print("loading sample: ", self.sample_folder)
++        # load meta data from YAML file
++        self.meta = self.load_metadata(os.path.join(self.sample_folder, 'meta_{}.yaml'.format(self.idx)))
++        
++        # load image
++        seg_files = glob.glob(os.path.join(self.sample_folder, 'seg_*.stl'))
++        xyz = []
++        segmentation = []
++        for file in seg_files:
++            seg = trm.load(file)
++            if "tympanic_membrane" in file:
++                index = 0
++            elif "malleus" in file:
++                index = 1
++            elif "incus" in file:
++                index = 2
++            if "stapes" in file:
++                index = 3
++            elif "promontory" in file:
++                index = 4
++                continue
++            xyz.append(seg.vertices)
++            
++            index = -1
++            segmentation.append(np.zeros((seg.vertices.shape[0]))+index)
++
++        xyz = np.concatenate(xyz, axis=0)
++        segmentation = np.concatenate(segmentation, axis=0)
++
++        # flip left ears
++        if self.meta['patient_info']['side'] == 'left':
++            xyz = xyz * [-1, 1, 1]
++        
++        intra = trm.load('ear_dataset/004991/intra_surface.stl').vertices
++        # randomly choose 2048 points
++        random_indices = np.arange(len(xyz))
++        np.random.shuffle(random_indices)
++        xyz = xyz[random_indices[:2248]]
++        segmentation = segmentation[random_indices[:2248]]
++        xyz = (rot_mat @ xyz.T).T
++        center = (np.median(xyz, axis=0) - np.median(intra,axis=0))
++        xyz = xyz - center
++
++        # load landmarks
++        landmarks_list = self.load_landmarks(center, rotation=rot_mat, flip=self.meta['patient_info']['side'] == 'left')
++
++        return {
++            'target_xyz': xyz,
++            'segmentation': segmentation,
++            "landmarks": landmarks_list,
++            'metadata': self.meta,
++        }
++
++
++class OCTDataset(Dataset):
++    def __init__(self, 
++                data_folder,
++                num_samples=30,
++            ):
++        self.data_folder = data_folder
++        self.num_samples = num_samples
++        self.samples = []
++        self.get_samples()
++        print(len(self.samples))
++
++    def __len__(self):
++        return len(self.samples)
++
++    def get_samples(self):
++        for idx in range(self.num_samples):
++            sample_folder = os.path.join(self.data_folder, "sample_{}".format(idx))
++            self.samples.append(OCTSample(sample_folder))
++
++    def __getitem__(self, idx):
++        sample = self.samples[idx]
++        res = sample.load()
++
++        data = {
++            'target_xyz': torch.tensor(res["target_xyz"]),
++            'segmentations': torch.cat([ s.unsqueeze(dim=0) for s in res["segmentations"]], dim=0),
++            "segmentation_merged": torch.tensor(res["segmentation_merged"]),
++            "landmarks": res["landmarks"], # re-write collate_fn to land landmarks to tensor
++        }
++        return data
++    
++
++means, stds = [], []
++for i in range(43):
++    sample = OCTSample(f'DIOME_FanShapeCorr/sample_{i}')
++    sample = sample.load()
++    means.append(sample['target_xyz'].mean(0))
++    stds.append(sample['target_xyz'].std(0))
++    with open(f'DIOME_FanShapeCorr/sample_{i}/data_cached.pkl', 'wb') as f:
++        dump(sample, f)
++
++metadata = dict(
++    mean = np.stack(means).mean(0),
++    std = np.stack(stds).mean()
++)
++
++with open('DIOME_FanShapeCorr/metadata.pkl', 'wb') as f:
++    dump(metadata, f)
+\ No newline at end of file
+diff --git a/ngenet/models/NgeNet.py b/ngenet/models/NgeNet.py
+index a37505c..d610d73 100644
+--- a/ngenet/models/NgeNet.py
++++ b/ngenet/models/NgeNet.py
+@@ -217,7 +217,6 @@ class NgeNet(nn.Module):
+         batched_feats_m = batched_feats_m / torch.norm(batched_feats_m, dim=1, keepdim=True)
+         batched_feats_l = batched_feats_l / torch.norm(batched_feats_l, dim=1, keepdim=True)
+         batched_feats = torch.cat([batched_feats, overlap_scores, saliency_scores], dim=-1)
+-
+         return batched_feats, batched_feats_m, batched_feats_l
+ 
+ 
+diff --git a/regtr/data_loaders/__pycache__/__init__.cpython-310.pyc b/regtr/data_loaders/__pycache__/__init__.cpython-310.pyc
+index de2da84..91caf7e 100644
+Binary files a/regtr/data_loaders/__pycache__/__init__.cpython-310.pyc and b/regtr/data_loaders/__pycache__/__init__.cpython-310.pyc differ
+diff --git a/regtr/data_loaders/__pycache__/eardataset.cpython-310.pyc b/regtr/data_loaders/__pycache__/eardataset.cpython-310.pyc
+index 8eeee53..c77e2be 100644
+Binary files a/regtr/data_loaders/__pycache__/eardataset.cpython-310.pyc and b/regtr/data_loaders/__pycache__/eardataset.cpython-310.pyc differ
+diff --git a/regtr/data_loaders/eardataset.py b/regtr/data_loaders/eardataset.py
+index 4d75137..75614fc 100644
+--- a/regtr/data_loaders/eardataset.py
++++ b/regtr/data_loaders/eardataset.py
+@@ -20,7 +20,7 @@ class EarDataset(Dataset):
+         super().__init__()
+         self.logger = logging.getLogger(__name__)
+ 
+-        assert phase in ['train', 'val']
++        assert phase in ['train', 'val', 'test']
+ 
+         self.root = cfg.root
+         self.split = phase
+@@ -98,22 +98,22 @@ class EarDataset(Dataset):
+ class EarDatasetTest(Dataset):
+     def __init__(self, cfg, phase, transforms=None):
+         super().__init__()
+-        self.logger = logging.getLogger(__name__)
+-
+-        assert phase in ['train', 'val']
+-
+         self.root = cfg.root
+         self.split = phase
+         self.noisy = True
+         self.aug = True if phase == 'train' else False
+         self.overlap_radius = cfg.overlap_radius
+         self.max_points = 10000
++        test_path = cfg.oct_root
++        self.test_paths = glob.glob(os.path.join(test_path, 'sample_*'))
+         
+-        with open(os.path.join(self.root, 'metadata.pkl'), 'rb') as f:
++        with open(os.path.join(test_path, 'metadata.pkl'), 'rb') as f:
+             self.metadata = pickle.load(f)
+-        
+-        self.test_paths = glob.glob(cfg.oct_root)
+-        self.paths = [os.path.join(self.root, i.split("/")[-1]) for i in self.metadata[phase]]
++
++        with open(os.path.join(self.root, 'metadata.pkl'), 'rb') as f:
++            self.eardataset_metadata = pickle.load(f)
++
++        self.paths = [os.path.join(self.root, i.split("/")[-1]) for i in self.eardataset_metadata[phase]]
+         self.data_sample = self.load_sample(self.paths[0])
+ 
+     def __len__(self):
+@@ -124,23 +124,25 @@ class EarDatasetTest(Dataset):
+             data = pickle.load(f)
+         return data
+     
+-    def norm(self, arr):
+-        return (arr-self.metadata['mean'])/self.metadata['std']
++    def norm(self, arr, metadata):
++        return (arr-metadata['mean'])/metadata['std']
+ 
+     def __getitem__(self, item):
+         path = self.test_paths[item]
+-        data = np.load(path)
++        data = self.data_sample
++        test_data = self.load_sample(path)
+ 
+-        src_points_raw = self.data_sample['points_pre']
+-        src_points, src_faces = self.norm(src_points_raw), self.data_sample['faces'] # npy, (n, 3); npy, (f, 3)
++        src_points_raw = data['points_pre'] # preoperative model is always the same
++        src_points, src_faces = self.norm(src_points_raw, self.eardataset_metadata), data['faces'] # npy, (n, 3); npy, (f, 3)
+ 
+         tgt_points_full = np.array([])
+-        tgt_points_raw = data
+-        
+-        tgt_points = self.norm(tgt_points_raw) # npy, (m, 3)
++        tgt_points_raw = test_data['target_xyz']
++        tgt_points = self.norm(tgt_points_raw, self.eardataset_metadata) # npy, (m, 3)
+ 
+         displ = np.array([])
+ 
++        coors = np.array([])
++
+         src_overlap_mask, tgt_overlap_mask, coors = np.array([]), np.array([]), np.array([])
+ 
+         pair = {
+@@ -155,5 +157,7 @@ class EarDatasetTest(Dataset):
+             'src_path': path,
+             'tgt_path': path,
+             'overlap_p': 1,
++            'metadata': test_data['metadata'],
++            'landmarks': test_data['landmarks'],
+         }
+         return pair
+\ No newline at end of file
+diff --git a/testRegTr.ipynb b/testRegTr.ipynb
+index fd8dd4a..4bf0ddc 100644
+--- a/testRegTr.ipynb
++++ b/testRegTr.ipynb
+@@ -20,6 +20,7 @@
+     "import pickle\n",
+     "import torch\n",
+     "import time\n",
++    "from tqdm import tqdm\n",
+     "import numpy as np\n",
+     "from statistics import mean\n",
+     "from easydict import EasyDict as edict\n",
+@@ -36,6 +37,7 @@
+     "from regtr.utils.misc import load_config\n",
+     "from regtr.utils.se3_numpy import se3_transform\n",
+     "from regtr.utils.se3_torch import se3_transform as se3_transform_torch\n",
++    "from regtr.data_loaders.eardataset import EarDataset, EarDatasetTest\n",
+     "\n",
+     "import regtr.cvhelpers.visualization as cvv\n",
+     "import regtr.cvhelpers.colors as colors\n",
+@@ -53,7 +55,17 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 2,
++   "execution_count": null,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "import time\n",
++    "time.sleep(3*60*60)"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -80,17 +92,20 @@
+     "                   only points strictly within the overlap region.\n",
+     "    \"\"\"\n",
+     "\n",
+-    "    large_pt_size = 4\n",
++    "    small_pt_size = 4\n",
++    "    large_pt_size = 8\n",
+     "    color_mapper = colormap.ScalarMappable(norm=None, cmap=colormap.get_cmap('coolwarm'))\n",
+     "    overlap_colors = (color_mapper.to_rgba(src_overlap[:, 0])[:, :3] * 255).astype(np.uint8)\n",
+     "    m = src_overlap[:, 0] > threshold\n",
+     "\n",
+     "    vis = cvv.Visualizer(\n",
+     "        win_size=(1600, 1000),\n",
+-    "        num_renderers=4)\n",
+-    "\n",
++    "        num_renderers=4,\n",
++    "        bg_color=(255, 255, 255)\n",
++    "    )\n",
++    "    \n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(src_xyz, colors=colors.RED),\n",
++    "        cvv.create_point_cloud(src_xyz, colors=colors.BLUE, pt_size=small_pt_size, alpha=0.25),\n",
+     "        renderer_idx=0\n",
+     "    )\n",
+     "    vis.add_object(\n",
+@@ -99,7 +114,7 @@
+     "    )\n",
+     "\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE, pt_size=small_pt_size, alpha=0.25),\n",
+     "        renderer_idx=1\n",
+     "    )\n",
+     "    vis.add_object(\n",
+@@ -109,21 +124,21 @@
+     "\n",
+     "    # Before registration\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(src_xyz, colors=colors.RED),\n",
++    "        cvv.create_point_cloud(src_xyz, colors=colors.BLUE, pt_size=small_pt_size),\n",
+     "        renderer_idx=2\n",
+     "    )\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE, pt_size=small_pt_size),\n",
+     "        renderer_idx=2\n",
+     "    )\n",
+     "\n",
+     "    # After registration\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(se3_transform(pose, src_xyz), colors=colors.RED),\n",
++    "        cvv.create_point_cloud(se3_transform(pose, src_xyz), colors=colors.BLUE, pt_size=small_pt_size),\n",
+     "        renderer_idx=3\n",
+     "    )\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE, pt_size=small_pt_size),\n",
+     "        renderer_idx=3\n",
+     "    )\n",
+     "\n",
+@@ -157,11 +172,11 @@
+     "\n",
+     "    # Before registration\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(src_xyz, colors=colors.RED),\n",
++    "        cvv.create_point_cloud(src_xyz, colors=colors.BLUE),\n",
+     "        renderer_idx=0\n",
+     "    )\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE),\n",
+     "        renderer_idx=0\n",
+     "    )\n",
+     "    vis.add_object(\n",
+@@ -171,11 +186,11 @@
+     "\n",
+     "    # After registration\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(src_xyz + displacement, colors=colors.RED),\n",
++    "        cvv.create_point_cloud(src_xyz + displacement, colors=colors.BLUE),\n",
+     "        renderer_idx=1\n",
+     "    )\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE),\n",
+     "        renderer_idx=1\n",
+     "    )\n",
+     "\n",
+@@ -215,7 +230,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 3,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -227,25 +242,26 @@
+     "conf.dev = False\n",
+     "conf.num_workers = 0\n",
+     "conf.name = None\n",
+-    "conf.resume = 'D:/logs/eardataset/230224_074601_regtr_eardataset_standard/ckpt/model-88000.pth'"
++    "#conf.resume = 'D:/logs/eardataset/230224_074601_regtr_eardataset_standard/ckpt/model-88000.pth'\n",
++    "conf.resume = 'D:/mesh2mesh/trainResults/eardataset/240107_080636_regtr_eardataset_standard_resume/ckpt/model-66000.pth'"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 4,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stderr",
+      "output_type": "stream",
+      "text": [
+-      "\u001b[32m06/05 21:05:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mroot\u001b[0m - Output and logs will be saved to logs\\230605_210533\n",
+-      "\u001b[32m06/05 21:05:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Command: C:\\Users\\chenp\\AppData\\Roaming\\Python\\Python310\\site-packages\\ipykernel_launcher.py --ip=127.0.0.1 --stdin=9023 --control=9021 --hb=9020 --Session.signature_scheme=\"hmac-sha256\" --Session.key=b\"f30adf22-660c-4ce7-a551-82d493bb169e\" --shell=9022 --transport=\"tcp\" --iopub=9024 --f=c:\\Users\\chenp\\AppData\\Roaming\\jupyter\\runtime\\kernel-v2-250167HUL3JtQb41W.json\n",
+-      "\u001b[32m06/05 21:05:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Source is from Commit 7a68d167 (2023-05-02): update in RegTR\n",
+-      "\u001b[32m06/05 21:05:34\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Arguments: \n",
+-      "\u001b[32m06/05 21:05:35\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Instantiating model RegTR\n",
+-      "\u001b[32m06/05 21:05:35\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Loss weighting: {'overlap_5': 1.0, 'feature_5': 0.1, 'corr_5': 1.0, 'feature_un': 0.0}\n",
+-      "\u001b[32m06/05 21:05:35\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Config: d_embed:64, nheads:8, pre_norm:True, use_pos_emb:True, sa_val_has_pos_emb:True, ca_val_has_pos_emb:True\n"
++      "\u001b[32m01/25 20:19:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mroot\u001b[0m - Output and logs will be saved to logs\\240125_201933\n",
++      "\u001b[32m01/25 20:19:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Command: C:\\Users\\chenp\\AppData\\Roaming\\Python\\Python310\\site-packages\\ipykernel_launcher.py --f=c:\\Users\\chenp\\AppData\\Roaming\\jupyter\\runtime\\kernel-v2-59045B5jUZeXvre2.json\n",
++      "\u001b[32m01/25 20:19:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Source is from Commit 95412c13 (2023-09-06): Fixed one small BUG in test_script.py!\n",
++      "\u001b[32m01/25 20:19:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Arguments: \n",
++      "\u001b[32m01/25 20:19:34\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Instantiating model RegTR\n",
++      "\u001b[32m01/25 20:19:34\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Loss weighting: {'overlap_5': 1.0, 'feature_5': 0.1, 'corr_5': 1.0, 'feature_un': 0.0}\n",
++      "\u001b[32m01/25 20:19:34\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Config: d_embed:64, nheads:8, pre_norm:True, use_pos_emb:True, sa_val_has_pos_emb:True, ca_val_has_pos_emb:True\n"
+      ]
+     }
+    ],
+@@ -283,7 +299,7 @@
+     "p_config.device = torch.cuda.current_device()\n",
+     "\n",
+     "cfg.dataset = 'eardataset_test'\n",
+-    "test_loader = get_dataloader(cfg, phase='val')\n",
++    "test_loader = get_dataloader(cfg, phase='test')\n",
+     "Model = get_model(cfg.model)\n",
+     "model = Model(cfg)\n",
+     "trainer = Trainer(opt, niter=cfg.niter, grad_clip=cfg.grad_clip)\n",
+@@ -294,14 +310,14 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 5,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stderr",
+      "output_type": "stream",
+      "text": [
+-      "\u001b[32m06/05 21:05:38\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mCheckPointManager\u001b[0m - Loaded models from D:/logs/eardataset/230224_074601_regtr_eardataset_standard/ckpt/model-88000.pth\n",
++      "\u001b[32m01/25 20:19:38\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mCheckPointManager\u001b[0m - Loaded models from D:/mesh2mesh/trainResults/eardataset/240107_080636_regtr_eardataset_standard_resume/ckpt/model-66000.pth\n",
+       "                                                                                \r"
+      ]
+     }
+@@ -312,7 +328,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 6,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -347,18 +363,55 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 15,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
++   "source": [
++    "regtr_cd_l = []\n",
++    "number_of_points = []\n",
++    "for i in range(999):\n",
++    "    regtr_cd_l.append(computeCD(denorm(pred_src[i], metadata)[None], denorm(tgt_gt, metadata)[i][None], torch.zeros(5995,3)[None].cuda()).item())\n",
++    "    number_of_points.append(len(pred_tgt[i])/5995.0)"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
++   "metadata": {},
++   "outputs": [
++    {
++     "name": "stderr",
++     "output_type": "stream",
++     "text": [
++      "0it [00:00, ?it/s]"
++     ]
++    },
++    {
++     "name": "stderr",
++     "output_type": "stream",
++     "text": [
++      "0it [00:06, ?it/s]\n"
++     ]
++    }
++   ],
+    "source": [
+     "nn_thresh = 0.5\n",
+     "\n",
+     "transformations = []\n",
+     "nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l = [], [], [], []\n",
++    "regtr_cd_l = []\n",
++    "non_registered_landmark_loss_l = []\n",
++    "registered_partial_cd_l = []\n",
+     "wall_time = []\n",
+     "displ_l = []\n",
++    "side, status = [], []\n",
+     "cnt = 0\n",
+-    "for (src_norm, tgt_norm, tgt_full_norm, src_kp_norm, overlap_score, pose, displ, src_path) in zip(pred_src, pred_tgt, tgt_gt, pred_src_kp, pred_overlap_score, pred_pose, displ_gt, src_paths):\n",
++    "\n",
++    "test_dataset_real = EarDatasetTest(\n",
++    "    cfg, 'test'\n",
++    ")\n",
++    "\n",
++    "for pair_ind, (src_norm, tgt_norm, tgt_full_norm, src_kp_norm, overlap_score, pose, displ, src_path) in tqdm(enumerate(zip(pred_src, pred_tgt, tgt_gt, pred_src_kp, pred_overlap_score, pred_pose, displ_gt, src_paths))):\n",
+     "    t1 = time.time()\n",
+     "\n",
+     "    # Use KDTree to compute correnspondences\n",
+@@ -370,7 +423,7 @@
+     "    inds.append(indices)\n",
+     "\n",
+     "    # Transform and denorm pcds\n",
+-    "    src_transformed_norm = se3_transform_torch(pose, src_norm)\n",
++    "    src_transformed_norm = torch.tensor(se3_transform(pose.cpu().numpy(), src_norm.cpu().numpy()))\n",
+     "    src_denorm = denorm(src_norm, metadata)\n",
+     "    src_transformed_denorm = denorm(src_transformed_norm, metadata)\n",
+     "    tgt_denorm = denorm(tgt_norm, metadata)\n",
+@@ -381,6 +434,8 @@
+     "    warped_pcd, hist, _, timer = model_nonrigid.register(visualize=False, timer = timer)\n",
+     "    pred_displ = warped_pcd - src_denorm\n",
+     "    displ_l.append(pred_displ)\n",
++    "    wall_time.append(time.time()-t1)\n",
++    "    #registered_partial_cd_l.append(computeCD(src_denorm[indices][None], tgt_full_denorm[None], pred_displ[indices][None]).item())\n",
+     "    \n",
+     "    # Compute Metrics\n",
+     "    if cfg.dataset == 'eardataset':\n",
+@@ -394,6 +449,7 @@
+     "        pre_landmarks = [tgt_full_denorm[i].cpu() for i in l_inds]\n",
+     "        lndmk = landmark_loss(pre_landmarks, pred_landmarks)\n",
+     "        landmark_loss_l.append(lndmk)\n",
++    "        regtr_cd_l.append(computeCD(src_transformed_denorm[None], tgt_full_denorm[None], torch.zeros(src_transformed_denorm.shape)[None]).item())\n",
+     "\n",
+     "    else:\n",
+     "        sample_name = src_path.split('\\\\')[-1].split('.')[0]\n",
+@@ -402,8 +458,12 @@
+     "\n",
+     "        registered_cd_l.append(computeCD(src_denorm[None], tgt_denorm[None], pred_displ[None]).item())\n",
+     "\n",
+-    "        with open(f'mesh_dataset/oct_outputs/{sample_name}_lndmrks.pkl', 'rb') as f:\n",
+-    "            landmarks_intra = pickle.load(f)\n",
++    "        intra_data = test_dataset_real.__getitem__(pair_ind)\n",
++    "        intra_metadata = intra_data['metadata']\n",
++    "        side.append(intra_metadata['patient_info']['side'])\n",
++    "        status.append(intra_metadata['patient_info']['status'])\n",
++    "        \n",
++    "        landmarks_intra = intra_data['landmarks']\n",
+     "        \n",
+     "        if landmarks_intra != {}:\n",
+     "            pred_landmarks = [warped_pcd[landmarks[k]].cpu() for k, v in landmarks_intra.items()]\n",
+@@ -411,60 +471,80 @@
+     "            lndmk = landmark_loss(pred_landmarks, intra_landmarks)\n",
+     "            landmark_loss_l.append(lndmk)\n",
+     "\n",
+-    "    wall_time.append(time.time()-t1)\n",
++    "            pred_landmarks = [src_denorm[landmarks[k]].cpu() for k, v in landmarks_intra.items()]\n",
++    "            lndmk = landmark_loss(pred_landmarks, intra_landmarks)\n",
++    "            non_registered_landmark_loss_l.append(lndmk)\n",
+     "\n",
+-    "    if cnt > 1:\n",
+-    "        break\n",
+-    "    cnt += 1"
++    "        else:\n",
++    "            landmark_loss_l.append(-1)\n",
++    "            non_registered_landmark_loss_l.append(-1)\n",
++    "\n"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 16,
++   "execution_count": 41,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+-      "Non-registered cd score: 11288.462544123331\n",
+-      "Registered cd score: 11167.303678164879\n",
+-      "Landmark loss: 1.1502150136555136\n",
+-      "Wall time: 5.855260610580444 s\n"
++      "Non-registered cd score: 4.179325458615325\n",
++      "Registered cd score: 0.7843379669411238\n",
++      "Landmark loss: 1.2690813122139462\n",
++      "Wall time: 6.013042993323747 s\n"
+      ]
+     }
+    ],
+    "source": [
+     "print('Non-registered cd score:', mean(nonregistered_cd_l))\n",
+     "print('Registered cd score:', mean(registered_cd_l))\n",
++    "#print('Registered partial cd score:', mean(registered_partial_cd_l))\n",
+     "if cfg.dataset == 'eardataset':\n",
+     "    print('Mean displacement error: ', mean(mean_displacement_error_l))\n",
+-    "print('Landmark loss:', mean(landmark_loss_l))\n",
++    "print('Landmark loss:', mean([i for i in landmark_loss_l if i != -1]))\n",
+     "print('Wall time:', mean(wall_time), 's')"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 40,
++   "execution_count": 43,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+-    "visualize_result(src_denorm, tgt_denorm, pred_displ, indices)"
++    "visualize_result(src_denorm.cuda(),  tgt_denorm, pred_displ.cuda(), indices)"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 41,
++   "execution_count": 14,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "ind = 27\n",
++    "visualize_result_regtr(pred_src[ind].cpu().numpy(), pred_tgt[ind].cpu().numpy(), pred_src_kp[ind].cpu().numpy(), pred_tgt_kp[ind].cpu().numpy(), pred_overlap_score[ind].cpu().numpy(), pred_pose[ind].cpu().numpy(), threshold=0)"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 29,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+-    "ind = 9\n",
+-    "visualize_result_regtr(pred_src[ind].cpu().numpy(), pred_tgt[ind].cpu().numpy(), pred_src_kp[ind].cpu().numpy(), pred_tgt_kp[ind].cpu().numpy(), pred_overlap_score[ind].cpu().numpy(), pred_pose[ind].cpu().numpy(), threshold=nn_thresh)"
++    "for i in range(43):\n",
++    "    data = dict(\n",
++    "        src = denorm(se3_transform(pred_pose[ind].cpu().numpy(), pred_src[ind].cpu().numpy()), metadata),\n",
++    "        inds = inds[i],\n",
++    "    )\n",
++    "    with open(f'mesh_dataset/DIOME_FanShapeCorr/sample_{i}/regtr_pred.pkl', 'wb') as f:\n",
++    "        pickle.dump(data, f)\n",
++    "    "
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 42,
++   "execution_count": 13,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -475,36 +555,77 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 45,
++   "execution_count": 15,
+    "metadata": {},
+-   "outputs": [
+-    {
+-     "data": {
+-      "text/plain": [
+-       "0.6593828190158465"
+-      ]
+-     },
+-     "execution_count": 45,
+-     "metadata": {},
+-     "output_type": "execute_result"
+-    }
+-   ],
++   "outputs": [],
++   "source": [
++    "\"\"\" On normal dataset\n",
++    "Non-registered cd score: 1.4596144970549785\n",
++    "Registered cd score: 0.29597098740516437\n",
++    "Registered partial cd score: 2.3302804929076717\n",
++    "Mean displacement error:  1.2692070097504926\n",
++    "Landmark loss: 0.3599099684169502\n",
++    "Wall time: 8.540204111336594 s \"\"\"\n",
++    "\n",
++    "\"\"\" On high variety dataset\n",
++    "Non-registered cd score: 1.4065552084325432\n",
++    "Registered cd score: 1.0310056967748418\n",
++    "Registered partial cd score: 1.5106343214397315\n",
++    "Mean displacement error:  1.7764664716548748\n",
++    "Landmark loss: 0.8699200562834195\n",
++    "Wall time: 6.008897996879555 s \n",
++    "\n",
++    "On corrected DIOME\n",
++    "Non-registered cd score: 4.179325458615325\n",
++    "Registered cd score: 0.8000558288984521\n",
++    "Landmark loss: 1.2649516742809437\n",
++    "Wall time: 6.067085615424222 s\"\"\""
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 72,
++   "metadata": {},
++   "outputs": [],
+    "source": [
+-    "len(indices)/5995 # OCT Coverage"
++    "results_dict_invivo = dict(\n",
++    "    nonregistered_cd_l=nonregistered_cd_l,\n",
++    "    non_registered_landmark_loss_l=non_registered_landmark_loss_l,\n",
++    "    registered_cd_l=registered_cd_l,\n",
++    "    landmark_loss_l=[i if i != -1 else float('nan') for i in landmark_loss_l],\n",
++    "    wall_time_models=wall_time,\n",
++    "    displ=[i.cpu().numpy() for i in displ_l],\n",
++    "    #inds=inds,\n",
++    "    side=side,\n",
++    "    status=status\n",
++    ")\n",
++    "\n",
++    "import pandas as pd\n",
++    "df = pd.DataFrame.from_dict(results_dict_invivo)\n",
++    "df.to_csv('finalResults/results_invivo_regtr.csv')"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 129,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+-    "# SYNTHETIC dataset RECOMPUTE METRICS ERROR! COde already fixed\n",
+-    "#Non-registered cd score: 2.6510443661802556\n",
+-    "#Registered cd score: 1.525927096151323\n",
+-    "#Mean displacement error:  1.2454229513430253\n",
+-    "#Landmark loss: 0.31956249197747577\n",
+-    "#Wall time: 2.8274417352932755 s"
++    "results_dict_exvivo = dict(\n",
++    "    nonregistered_cd_l=nonregistered_cd_l,\n",
++    "    non_registered_landmark_loss_l=non_registered_landmark_loss_l,\n",
++    "    mean_displacement_error_l=mean_displacement_error_l,\n",
++    "    registered_cd_l=registered_cd_l,\n",
++    "    regtr_cd_l=regtr_cd_l,\n",
++    "    landmark_loss_l=[i if i != -1 else float('nan') for i in landmark_loss_l],\n",
++    "    wall_time_models=wall_time,\n",
++    "    displ=[i.cpu().numpy() for i in displ_l],\n",
++    "    len_inds=[len(i) for i in inds],\n",
++    ")\n",
++    "\n",
++    "import pandas as pd\n",
++    "df = pd.DataFrame.from_dict(results_dict_exvivo)\n",
++    "df.to_csv('finalResults/results_exvivo_regtr.csv')"
+    ]
+   }
+  ],
+diff --git a/test_pipeline.ipynb b/test_pipeline.ipynb
+index e5a03c2..9761de6 100644
+--- a/test_pipeline.ipynb
++++ b/test_pipeline.ipynb
+@@ -37,7 +37,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 27,
++   "execution_count": 2,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -58,13 +58,13 @@
+     "        pass\n",
+     "    args = config()\n",
+     "    args.data_root = 'mesh_dataset/ear_dataset/'\n",
+-    "    args.dataset_split = 'val'\n",
++    "    args.dataset_split = 'test'\n",
+     "    args.oct_data_root = 'mesh_dataset/oct_outputs/*.npy'\n",
+     "    args.checkpoint = 'trainResults/eardataset_nonrigid_randrot_pretrained_eardrum_large_ds/checkpoints/best_recall.pth'\n",
+     "    #args.checkpoint = 'trainResults/trained_03_13_100k_randomsplit_0/checkpoints/best_recall.pth'\n",
+     "    args.vis = False\n",
+     "    args.no_cuda = False\n",
+-    "    args.use_real = True\n",
++    "    args.use_real = False\n",
+     "\n",
+     "    args.ngenet_config_path = 'config/eardataset_ngenet.yaml'\n",
+     "    args.ndp_config_path = 'config/NDP.yaml'\n",
+@@ -86,7 +86,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 28,
++   "execution_count": 3,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -96,7 +96,7 @@
+     "config.architecture = architectures[config.dataset]\n",
+     "config.num_workers = 0\n",
+     "\n",
+-    "all_oct_outputs = glob(args.oct_data_root)\n",
++    "diome_path = 'mesh_dataset/DIOME_FanShapeCorr/'\n",
+     "\n",
+     "test_dataset = EarDataset(\n",
+     "    root=args.data_root,\n",
+@@ -107,7 +107,7 @@
+     ")\n",
+     "\n",
+     "test_dataset_real = EarDatasetTest(\n",
+-    "    test_paths=all_oct_outputs,\n",
++    "    test_path=diome_path,\n",
+     "    root=args.data_root,\n",
+     "    noisy_intra=config.noisy_intra,\n",
+     "    split='test',\n",
+@@ -134,7 +134,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 29,
++   "execution_count": 4,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -177,7 +177,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 30,
++   "execution_count": 5,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -199,9 +199,13 @@
+     "inlier_ratios, mutual_inlier_ratios = [], []\n",
+     "mutual_feature_match_recalls, feature_match_recalls = [], []\n",
+     "transformations = []\n",
+-    "nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l = [], [], [], []\n",
++    "nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l, ngenet_cd_l = [], [], [], [], []\n",
+     "overlap_scores, wall_time_models = [], []\n",
+     "displ_ngenet, displ = [], []\n",
++    "mdes, visible_point_ratio = [], []\n",
++    "uncertainty_scores = []\n",
++    "side, status = [], []\n",
++    "len_coors_l = []\n",
+     "\n",
+     "dist_thresh_maps = {\n",
+     "    '10000': config.first_subsampling_dl,\n",
+@@ -211,20 +215,21 @@
+     "    '500': config.first_subsampling_dl * 1.5,\n",
+     "    '250': config.first_subsampling_dl * 2,\n",
+     "}\n",
++    "\n",
+     "model_nonrigid = Registration(p_config)\n",
+     "timer = Timers()"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 31,
++   "execution_count": 6,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stderr",
+      "output_type": "stream",
+      "text": [
+-      "100%|██████████| 10/10 [01:33<00:00,  9.39s/it]\n"
++      "100%|██████████| 1117/1117 [2:30:21<00:00,  8.08s/it] \n"
+      ]
+     }
+    ],
+@@ -239,7 +244,6 @@
+     "            else:\n",
+     "                inputs[k] = inputs[k].cuda()\n",
+     "    with torch.no_grad():\n",
+-    "        \n",
+     "        batched_feats_h, batched_feats_m, batched_feats_l = model_rigid(inputs)\n",
+     "        stack_points = inputs['points']\n",
+     "        stack_points_raw = inputs['batched_points_raw']\n",
+@@ -291,13 +295,15 @@
+     "        transformations.append(pred_T)\n",
+     "    \n",
+     "    corrs_pred = np.unique(np.asarray(result.correspondence_set).T[0])\n",
+-    "    \n",
++    "    len_coors_l.append(len(corrs_pred))\n",
+     "    raw_coords_src = torch.tensor(denorm(pcd2npy(estimate), metadata)).to(coords_src.device)\n",
+     "    raw_coords_tgt = torch.tensor(denorm(pcd2npy(target), metadata)).to(coords_tgt.device)\n",
+     "\n",
+     "    coords_src_raw = coords_src_raw.cpu().detach().numpy()\n",
+     "    coords_tgt_raw = coords_tgt_raw.cpu().detach().numpy()\n",
+     "    coords_tgt_full = coords_tgt_full.cpu().detach().numpy()\n",
++    "    coords_transformed_src = raw_coords_src.cpu().detach().numpy()\n",
++    "\n",
+     "    inds = inputs['inds'][0].cpu().detach().numpy()\n",
+     "    faces = inputs['faces'][0].cpu().detach().numpy()\n",
+     "    \n",
+@@ -327,18 +333,35 @@
+     "            trunc=1e+9\n",
+     "        ).item()\n",
+     "\n",
++    "        ngenet_cd = compute_truncated_chamfer_distance(\n",
++    "            torch.tensor(coords_transformed_src).unsqueeze(0).float(), \n",
++    "            torch.tensor(coords_tgt_full).unsqueeze(0), \n",
++    "            trunc=1e+9\n",
++    "        ).item()\n",
++    "\n",
++    "        # MEAN DISPLACEMENT ERROR\n",
+     "        mde = mean_displacement_error(\n",
+     "            displacement_pred, \n",
+     "            displacement_gt\n",
+     "        )\n",
++    "        mdes.append(mde)\n",
++    "\n",
++    "        # UNCERTAINTY PREDICTION\n",
++    "        # based on source target distance\n",
++    "        dist = torch.norm(torch.tensor(warped_pcd).unsqueeze(1) - torch.tensor(coords_tgt_raw).unsqueeze(0), dim=2)\n",
++    "        minimumDistances, _ = dist.min(dim=1)\n",
++    "        minimumDistances = torch.tanh(minimumDistances)\n",
++    "        \n",
++    "        visible_point_ratio.append(coords_tgt.shape[0]/5995)\n",
+     "\n",
+     "        l_inds = [v for u, v in landmarks.items()]\n",
+     "        pred_landmarks = [warped_pcd[i] for i in l_inds]\n",
+     "        pre_landmarks = [coords_tgt_full[i] for i in l_inds]\n",
+-    "\n",
++    "        \n",
+     "        lndmk = landmark_loss(pre_landmarks, pred_landmarks)\n",
+     "        ind = metadata[args.dataset_split][pair_ind].split(\"/\")[1]\n",
+     "        landmark_loss_l.append(lndmk)\n",
++    "        ngenet_cd_l.append(ngenet_cd)\n",
+     "    else:\n",
+     "        \n",
+     "        registered_cd = compute_truncated_chamfer_distance(\n",
+@@ -353,15 +376,21 @@
+     "            trunc=1e+9\n",
+     "        ).item()\n",
+     "\n",
+-    "        ind = all_oct_outputs[pair_ind].split('\\\\')[-1]\n",
+-    "        with open(f'mesh_dataset/oct_outputs/{ind.split(\".\")[0]}_lndmrks.pkl', 'rb') as f:\n",
+-    "            landmarks_intra = load(f)\n",
++    "        intra_data = test_dataset_real.__getitem__(pair_ind)\n",
++    "        intra_metadata = intra_data['metadata']\n",
++    "        side.append(intra_metadata['patient_info']['side'])\n",
++    "        status.append(intra_metadata['patient_info']['status'])\n",
+     "        \n",
++    "        landmarks_intra = intra_data['landmarks']\n",
++    "\n",
++    "        ind = pair_ind\n",
+     "        if landmarks_intra != {}:\n",
+     "            pred_landmarks = [warped_pcd[landmarks[k]] for k, v in landmarks_intra.items()]\n",
+     "            intra_landmarks = [v for k, v in landmarks_intra.items()]\n",
+     "            lndmk = landmark_loss(pred_landmarks, intra_landmarks)\n",
+     "            landmark_loss_l.append(lndmk)\n",
++    "        else:\n",
++    "            landmark_loss_l.append(-1)\n",
+     "        mde = -1\n",
+     "    \n",
+     "    overlap = len(target_npy)/len(source_npy)\n",
+@@ -373,25 +402,64 @@
+     "    \n",
+     "    output_mesh = trm.Trimesh(warped_pcd, faces)\n",
+     "    _=output_mesh.export(f'test_output_folder/predictions/prediction_{ind}.stl')\n",
+-    "    np.save(f'test_output_folder/pred_corrs/pred_corrs_{ind}.npy',np.asarray(result.correspondence_set))\n",
+-    "    np.save(f'test_output_folder/ndp_hist/ndp_hist_{ind}.npy',hist)"
++    "    np.save(f'test_output_folder/pred_corrs/pred_corrs_{ind}.npy', np.asarray(result.correspondence_set))\n",
++    "    np.save(f'test_output_folder/ndp_hist/ndp_hist_{ind}.npy', hist)\n",
++    "    np.save(f'test_output_folder/other_scores/overlap_saliency_{ind}.npy', feats_src_h[:, -2].cpu().numpy())\n",
++    "\n",
++    "    if pair_ind == -1:\n",
++    "        break"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 32,
++   "execution_count": 8,
++   "metadata": {},
++   "outputs": [
++    {
++     "ename": "SyntaxError",
++     "evalue": "keyword argument repeated (2822320456.py, line 10)",
++     "output_type": "error",
++     "traceback": [
++      "\u001b[1;36m  File \u001b[1;32m\"C:\\Users\\chenp\\AppData\\Local\\Temp\\ipykernel_35772\\2822320456.py\"\u001b[1;36m, line \u001b[1;32m10\u001b[0m\n\u001b[1;33m    overlap_scores=overlap_scores,\u001b[0m\n\u001b[1;37m    ^\u001b[0m\n\u001b[1;31mSyntaxError\u001b[0m\u001b[1;31m:\u001b[0m keyword argument repeated\n"
++     ]
++    }
++   ],
++   "source": [
++    "import pandas as pd\n",
++    "\n",
++    "results_dict_exvivo = dict(\n",
++    "    nonregistered_cd_l=nonregistered_cd_l,\n",
++    "    registered_cd_l=registered_cd_l,\n",
++    "    mean_displacement_error_l=mean_displacement_error_l,\n",
++    "    overlap_scores=overlap_scores,\n",
++    "    landmark_loss_l=[i if i != -1 else float('nan') for i in landmark_loss_l],\n",
++    "    wall_time_models=wall_time_models,\n",
++    "    overlap_scores=overlap_scores,\n",
++    "    displ_ngenet=displ_ngenet,\n",
++    "    displ=displ,\n",
++    "    len_coors_l=len_coors_l,\n",
++    ")\n",
++    "\n",
++    "\n",
++    "df = pd.DataFrame.from_dict(results_dict_exvivo)\n",
++    "df.to_csv('finalResults/results_exvivo_ngenet.csv')"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 7,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+-      "Non-registered cd score: 618.4198693275451\n",
+-      "Registered cd score: 1.963654351234436\n",
+-      "Overlap of pointclouds: 1.0\n",
+-      "Mean displacement error:  -1\n",
+-      "Landmark loss: 0.7635437785346877\n",
+-      "Wall time: 8.295645928382873 s\n"
++      "Non-registered cd score: 1.459614505165906\n",
++      "Registered cd score: 0.5751088607052446\n",
++      "Overlap of pointclouds: 0.356882301948132\n",
++      "Mean displacement error:  0.77491\n",
++      "Landmark loss: 0.4189711102293939\n",
++      "Wall time: 6.609897678626256 s\n"
+      ]
+     }
+    ],
+@@ -400,17 +468,69 @@
+     "print('Registered cd score:', mean(registered_cd_l))\n",
+     "print('Overlap of pointclouds:', mean(overlap_scores))\n",
+     "print('Mean displacement error: ', mean(mean_displacement_error_l))\n",
+-    "print('Landmark loss:', mean(landmark_loss_l))\n",
++    "print('Landmark loss:', mean([i for i in landmark_loss_l if i != -1]))\n",
+     "print('Wall time:', mean(wall_time_models), 's')"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 26,
++   "execution_count": 9,
++   "metadata": {},
++   "outputs": [
++    {
++     "name": "stdout",
++     "output_type": "stream",
++     "text": [
++      "[Open3D WARNING] invalid color in PaintUniformColor, clipping to [0, 1]\n"
++     ]
++    }
++   ],
++   "source": [
++    "colors = np.zeros((5995, 3))\n",
++    "colors[:, 1] = feats_src_h[:, -2].cpu().numpy()\n",
++    "\n",
++    "warped_pcds = npy2pcd(warped_pcd)\n",
++    "warped_pcds.colors = o3d.utility.Vector3dVector(colors)\n",
++    "target = npy2pcd(raw_coords_tgt.cpu().numpy())\n",
++    "target.paint_uniform_color([255, 0, 0])\n",
++    "vis_plys([warped_pcds, target], need_color=False)"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 1,
++   "metadata": {},
++   "outputs": [
++    {
++     "ename": "NameError",
++     "evalue": "name 'registered_cd_l' is not defined",
++     "output_type": "error",
++     "traceback": [
++      "\u001b[1;31m---------------------------------------------------------------------------\u001b[0m",
++      "\u001b[1;31mNameError\u001b[0m                                 Traceback (most recent call last)",
++      "\u001b[1;32m~\\AppData\\Local\\Temp\\ipykernel_33624\\2885513226.py\u001b[0m in \u001b[0;36m<module>\u001b[1;34m\u001b[0m\n\u001b[0;32m      1\u001b[0m \u001b[0msample_index\u001b[0m \u001b[1;33m=\u001b[0m \u001b[1;36m5\u001b[0m\u001b[1;33m\u001b[0m\u001b[1;33m\u001b[0m\u001b[0m\n\u001b[1;32m----> 2\u001b[1;33m \u001b[0mprint\u001b[0m\u001b[1;33m(\u001b[0m\u001b[1;34mf'Chamfer distance: {registered_cd_l[sample_index]}'\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m\u001b[0m\u001b[1;33m\u001b[0m\u001b[0m\n\u001b[0m\u001b[0;32m      3\u001b[0m \u001b[0mvis_plys\u001b[0m\u001b[1;33m(\u001b[0m\u001b[1;33m[\u001b[0m\u001b[0mnpy2pcd\u001b[0m\u001b[1;33m(\u001b[0m\u001b[0mwarped_pcds\u001b[0m\u001b[1;33m[\u001b[0m\u001b[0msample_index\u001b[0m\u001b[1;33m]\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m,\u001b[0m \u001b[0mnpy2pcd\u001b[0m\u001b[1;33m(\u001b[0m\u001b[0mtgt_raw\u001b[0m\u001b[1;33m[\u001b[0m\u001b[0msample_index\u001b[0m\u001b[1;33m]\u001b[0m\u001b[1;33m.\u001b[0m\u001b[0mcpu\u001b[0m\u001b[1;33m(\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m.\u001b[0m\u001b[0mnumpy\u001b[0m\u001b[1;33m(\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m]\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m\u001b[0m\u001b[1;33m\u001b[0m\u001b[0m\n",
++      "\u001b[1;31mNameError\u001b[0m: name 'registered_cd_l' is not defined"
++     ]
++    }
++   ],
++   "source": [
++    "sample_index = 5\n",
++    "print(f'Chamfer distance: {registered_cd_l[sample_index]}')\n",
++    "vis_plys([npy2pcd(warped_pcds[sample_index]), npy2pcd(tgt_raw[sample_index].cpu().numpy())])"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+-    "vis_plys([estimate, target])"
++    "\"\"\" Non-registered cd score: 1.459614505165906\n",
++    "Registered cd score: 0.5679943127659356\n",
++    "Overlap of pointclouds: 0.356882301948132\n",
++    "Mean displacement error:  0.7746529\n",
++    "Landmark loss: 0.4213273387613913\n",
++    "Wall time: 39.942818044655645 s \"\"\""
+    ]
+   },
+   {
+@@ -419,12 +539,21 @@
+    "metadata": {},
+    "outputs": [],
+    "source": [
+-    "\"\"\" Non-registered cd score: 618.4198693275451\n",
+-    "Registered cd score: 1.8703672170639039\n",
+-    "Overlap of pointclouds: 1.0\n",
++    "\"\"\" DIOME no correction\n",
++    "Non-registered cd score: 4.754870608795521\n",
++    "Registered cd score: 1.6517222634581632\n",
++    "Overlap of pointclouds: 0.5124270225187656\n",
+     "Mean displacement error:  -1\n",
+-    "Landmark loss: 0.8059637293833294\n",
+-    "Wall time: 7.068033504486084 s \"\"\""
++    "Landmark loss: 2.2849106172687916\n",
++    "Wall time: 6.274375043132088 s \n",
++    "\n",
++    "DIOME with correction\n",
++    "NNon-registered cd score: 4.179325480793798\n",
++    "Registered cd score: 2.3342912876328756\n",
++    "Overlap of pointclouds: 0.3749791492910759\n",
++    "Mean displacement error:  -1\n",
++    "Landmark loss: 1.817811517964032\n",
++    "Wall time: 8.124897069709245 s\"\"\""
+    ]
+   },
+   {
+@@ -432,7 +561,25 @@
+    "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+-   "source": []
++   "source": [
++    "\"\"\" import pandas as pd\n",
++    "\n",
++    "results_dict_invivo = dict(\n",
++    "    nonregistered_cd_l=nonregistered_cd_l,\n",
++    "    registered_cd_l=registered_cd_l,\n",
++    "    overlap_scores=overlap_scores,\n",
++    "    landmark_loss_l=[i if i != -1 else float('nan') for i in landmark_loss_l],\n",
++    "    wall_time_models=wall_time_models,\n",
++    "    displ_ngenet=displ_ngenet,\n",
++    "    displ=displ,\n",
++    "    side=side,\n",
++    "    status=status\n",
++    ")\n",
++    "\n",
++    "\n",
++    "df = pd.DataFrame.from_dict(results_dict_invivo)\n",
++    "df.to_csv('finalResults/results_invivo_ngenet.csv') \"\"\""
++   ]
+   }
+  ],
+  "metadata": {
+diff --git a/test_script.py b/test_script.py
+index c35992d..75f3e88 100644
+--- a/test_script.py
++++ b/test_script.py
+@@ -40,22 +40,35 @@ def checkIPython():
+     except:
+         return False
+ 
++if checkIPython(): # Checks if running in IPython notebook. If running by CLI, argparse is used
++    class config:
++        pass
++    args = config()
++    args.data_root = 'mesh_dataset/ear_dataset/'
++    args.dataset_split = 'test'
++    args.oct_data_root = 'mesh_dataset/oct_outputs/*.npy'
++    args.checkpoint = 'trainResults/eardataset_nonrigid_randrot_pretrained_eardrum_large_ds/checkpoints/best_recall.pth'
++    #args.checkpoint = 'trainResults/trained_03_13_100k_randomsplit_0/checkpoints/best_recall.pth'
++    args.vis = False
++    args.no_cuda = False
++    args.use_real = False
++
++    args.ngenet_config_path = 'config/eardataset_ngenet.yaml'
++    args.ndp_config_path = 'config/NDP.yaml'
++else:
++    parser = argparse.ArgumentParser()
+ 
+-class config:
+-    pass
+-args = config()
+-args.data_root = 'mesh_dataset/ear_dataset_test/'
+-args.dataset_split = 'val'
+-args.oct_data_root = 'mesh_dataset/oct_outputs/*.npy'
+-args.checkpoint = 'trainResults/eardataset_nonrigid_randrot_pretrained_eardrum_large_ds/checkpoints/best_recall.pth'
+-#args.checkpoint = 'trainResults/trained_03_13_100k_randomsplit_0/checkpoints/best_recall.pth'
+-args.vis = False
+-args.no_cuda = False
+-args.use_real = True
+-
+-args.ngenet_config_path = 'config/eardataset_ngenet.yaml'
+-args.ndp_config_path = 'config/NDP.yaml'
++    parser.add_argument('--data_root', type=str, default='mesh_dataset/ear_dataset/', help='root of synthetic dataset')
++    parser.add_argument('--dataset_split', type=str, default='val', help='which of the splits should be used as synthetic dataset')
++    parser.add_argument('--oct_data_root', type=str, default='mesh_dataset/oct_outputs/*.npy', help='glob specification of all oct scans to test (convert to .npy first)')
++    parser.add_argument('--checkpoint', type=str, default='trainResults/eardataset_nonrigid_randrot_pretrained_eardrum_large_ds/checkpoints/best_loss.pth', help='path to NgeNet checkpoint')
++    parser.add_argument('--ngenet_config_path', type=str, default='config/eardataset.yaml', help='which configuration file to use for NgeNet')
++    parser.add_argument('--ndp_config_path', type=str, default='config/NDP.yaml', help='which configuration file to use for NDP')
++    parser.add_argument('--use_real', action='store_true', default=False, help='decide wheather to run the test on the oct scans')
++    parser.add_argument('--vis', action='store_true',  default=False, help='visualize output while running in an extra window')
++    parser.add_argument('--no_cuda', action='store_true',  default=False, help='disable cuda (cpu only)')
+ 
++    args = parser.parse_args()
+ 
+ 
+ # %%
+@@ -156,7 +169,7 @@ rmse_threshold = 0.2
+ inlier_ratios, mutual_inlier_ratios = [], []
+ mutual_feature_match_recalls, feature_match_recalls = [], []
+ transformations = []
+-nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l = [], [], [], []
++nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l, ngenet_cd_l = [], [], [], [], []
+ overlap_scores, wall_time_models = [], []
+ displ_ngenet, displ = [], []
+ 
+@@ -220,8 +233,6 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+             use_cuda=use_cuda)
+         source_npy, target_npy, source_feats_npy, target_feats_npy = after_vote
+ 
+-        
+-
+         source, target = npy2pcd(source_npy), npy2pcd(target_npy)
+         
+         source_feats, target_feats = npy2feat(source_feats_h), npy2feat(target_feats_h)
+@@ -240,11 +251,11 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+     raw_coords_src = torch.tensor(denorm(pcd2npy(estimate), metadata)).to(coords_src.device)
+     raw_coords_tgt = torch.tensor(denorm(pcd2npy(target), metadata)).to(coords_tgt.device)
+ 
+-    
+-
+     coords_src_raw = coords_src_raw.cpu().detach().numpy()
+     coords_tgt_raw = coords_tgt_raw.cpu().detach().numpy()
+     coords_tgt_full = coords_tgt_full.cpu().detach().numpy()
++    coords_transformed_src = raw_coords_src.cpu().detach().numpy()
++
+     inds = inputs['inds'][0].cpu().detach().numpy()
+     faces = inputs['faces'][0].cpu().detach().numpy()
+     
+@@ -274,6 +285,12 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+             trunc=1e+9
+         ).item()
+ 
++        ngenet_cd = compute_truncated_chamfer_distance(
++            torch.tensor(coords_transformed_src).unsqueeze(0).float(), 
++            torch.tensor(coords_tgt_full).unsqueeze(0), 
++            trunc=1e+9
++        ).item()
++
+         mde = mean_displacement_error(
+             displacement_pred, 
+             displacement_gt
+@@ -286,6 +303,7 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+         lndmk = landmark_loss(pre_landmarks, pred_landmarks)
+         ind = metadata[args.dataset_split][pair_ind].split("/")[1]
+         landmark_loss_l.append(lndmk)
++        ngenet_cd_l.append(ngenet_cd)
+     else:
+         
+         registered_cd = compute_truncated_chamfer_distance(
+@@ -320,8 +338,6 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+     
+     output_mesh = trm.Trimesh(warped_pcd, faces)
+     _=output_mesh.export(f'test_output_folder/predictions/prediction_{ind}.stl')
+-    np.save(f'test_output_folder/ngenet_prediction/source_target_feats_{ind}.npy',np.asarray([source_npy, target_npy]))
+-    np.save(f'test_output_folder/ngenet_prediction/raw_coords_src{ind}.npy',np.asarray(raw_coords_src.cpu()))
+     np.save(f'test_output_folder/pred_corrs/pred_corrs_{ind}.npy',np.asarray(result.correspondence_set))
+     np.save(f'test_output_folder/ndp_hist/ndp_hist_{ind}.npy',hist)
+ 
+@@ -338,11 +354,11 @@ vis_plys([estimate, target])
+ 
+ # %%
+ """ Non-registered cd score: 618.4198693275451
+-Registered cd score: 1.8703672170639039
++Registered cd score: 1.993619680404663
+ Overlap of pointclouds: 1.0
+ Mean displacement error:  -1
+-Landmark loss: 0.8059637293833294
+-Wall time: 7.068033504486084 s """
++Landmark loss: 0.7676651613473052
++Wall time: 8.181469106674195 s """
+ 
+ # %%
+ 
+diff --git a/trainRegTr.py b/trainRegTr.py
+index 60d34af..65699b1 100644
+--- a/trainRegTr.py
++++ b/trainRegTr.py
+@@ -20,7 +20,7 @@ parser = argparse.ArgumentParser()
+ # General
+ parser.add_argument('--config', type=str, help='Path to the config file.')
+ # Logging
+-parser.add_argument('--logdir', type=str, default='/logs',
++parser.add_argument('--logdir', type=str, default='trainResults',
+                     help='Directory to store logs, summaries, checkpoints.')
+ parser.add_argument('--dev', action='store_true',
+                     help='If true, will ignore logdir and log to ../logdev instead')

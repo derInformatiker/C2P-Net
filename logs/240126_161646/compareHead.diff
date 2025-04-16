@@ -1,0 +1,2084 @@
+diff --git a/.gitignore b/.gitignore
+index 16fe4fc..3b3fb3a 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -15,6 +15,11 @@ mesh_dataset/segmentations
+ mesh_dataset/test_dataset
+ mesh_dataset/oct_outputs
+ mesh_dataset/landmarks
++mesh_dataset/ear_dataset_test
++mesh_dataset/DIOME_FanShapeCorr
++mesh_dataset/ear_dataset_percentage
++mesh_dataset/ear_dataset_same_percentage
++mesh_dataset/ear_dataset_test
+ mesh_dataset/baselines
+ mesh_dataset/oct_outputs
+ mesh_dataset/oct_outputs1
+diff --git a/config/eardataset_regtr.yaml b/config/eardataset_regtr.yaml
+index 0f4c89c..5aa4f01 100644
+--- a/config/eardataset_regtr.yaml
++++ b/config/eardataset_regtr.yaml
+@@ -4,7 +4,7 @@ general:
+ dataset:
+     dataset: eardataset
+     root: 'mesh_dataset/ear_dataset/'
+-    oct_root: mesh_dataset/oct_outputs/*.npy
++    oct_root: mesh_dataset/DIOME_FanShapeCorr
+     augment_noise: 0.005
+     perturb_pose: small
+     train_batch_size: 2
+diff --git a/d2ear_IPCAI2023_images/number_of_points_to_mde.png b/d2ear_IPCAI2023_images/number_of_points_to_mde.png
+deleted file mode 100644
+index 2a5a12e..0000000
+Binary files a/d2ear_IPCAI2023_images/number_of_points_to_mde.png and /dev/null differ
+diff --git a/mesh_dataset/ear_dataset_setup.py b/mesh_dataset/ear_dataset_setup.py
+index 23b8eb0..6354451 100644
+--- a/mesh_dataset/ear_dataset_setup.py
++++ b/mesh_dataset/ear_dataset_setup.py
+@@ -17,6 +17,8 @@ from sklearn.model_selection import train_test_split
+ from sklearn.neighbors import KDTree
+ from vtk.util.numpy_support import vtk_to_numpy
+ 
++from tqdm import tqdm
++
+ import vtkutils
+ 
+ random_state = 0
+@@ -24,7 +26,7 @@ random.seed(10)
+ 
+ mean, std = [], []
+ 
+-root_path = 'ear_dataset'
++root_path = 'ear_dataset_same_percentage'
+ 
+ # Extract paths from dataset
+ # Only these with object
+@@ -41,7 +43,7 @@ malleus = [-15.2788639, -12.0986271, 9.47885704]
+ stape = [-17.125576, -15.1159573, 10.5758705]
+ incus = [-17.3455696, -15.1841612, 11.0382509]
+ 
+-pre_surface = trm.load('ear_dataset/pre_surface.stl')
++pre_surface = trm.load(f'ear_dataset/pre_surface.stl')
+ points_pre = pre_surface.vertices
+ 
+ reader = vtk.vtkXMLPolyDataReader()#
+@@ -72,6 +74,23 @@ def artifacting(vert, faces, centerPoint, surfaceAmount, random_noise=False, mov
+     return noisy_vert
+ 
+ def artifactSample(points_intra):
++    faces = objs[0].faces
++    inc = artifacting(points_intra[segmentation == 0], faces, [incus], surfaceAmount=7.5/100,random_noise=True)
++    inc_seg = np.zeros(len(inc))
++
++    faces = objs[1].faces
++    mal = artifacting(points_intra[segmentation == 1], faces, [malleus], surfaceAmount=25/100,random_noise=True)
++    mal_seg = np.zeros(len(mal)) + 1
++
++    faces = objs[2].faces
++    tymp = artifacting(points_intra[segmentation == 2], faces, [umbo], surfaceAmount=82.5/100,random_noise=True)
++    tymp_seg = np.zeros(len(tymp)) + 2
++
++    faces = objs[3].faces
++    stap = artifacting(points_intra[segmentation == 3], faces, [stape], surfaceAmount=5/100,random_noise=True)
++    stap_seg = np.zeros(len(stap)) + 3
++
++    """ Original code
+     faces = objs[0].faces
+     inc = artifacting(points_intra[segmentation == 0], faces, [incus], surfaceAmount=random.randint(5, 10)/100,random_noise=True)
+     inc_seg = np.zeros(len(inc))
+@@ -86,7 +105,7 @@ def artifactSample(points_intra):
+ 
+     faces = objs[3].faces
+     stap = artifacting(points_intra[segmentation == 3], faces, [stape], surfaceAmount=random.randint(3, 7)/100,random_noise=True)
+-    stap_seg = np.zeros(len(stap)) + 3
++    stap_seg = np.zeros(len(stap)) + 3 """
+ 
+     noisy_points_intra = np.concatenate([i for i in [inc, mal, tymp, stap] if len(i) != 0], axis=0)
+     intra_segmentation = np.concatenate([i for i in [inc_seg, mal_seg, tymp_seg, stap_seg] if len(i) != 0], axis=0)
+@@ -103,7 +122,7 @@ def artifactSample(points_intra):
+     return noisy_points_intra, intra_segmentation, indices
+ 
+ 
+-for path in paths:
++for path in tqdm(paths):
+     # SET PATHS
+     intra = path + '/intra_surface.stl'
+     cache = path + '/data_cached.pkl'
+@@ -130,8 +149,8 @@ for path in paths:
+ 
+ # Make train 90%, val 5%, test 5% split
+ 
+-paths_train, paths_val = train_test_split(paths, test_size=0.91225, random_state=random_state)
+-paths_val, paths_test = train_test_split(paths_val, test_size=0.4725, random_state=random_state)
++paths_train, paths_val = train_test_split(paths, train_size=1, random_state=random_state)
++paths_val, paths_test = train_test_split(paths_val, train_size=1, random_state=random_state)
+ 
+ metadata = dict(
+     train=paths_train, 
+diff --git a/mesh_dataset/ear_dataset_setup_series.py b/mesh_dataset/ear_dataset_setup_series.py
+index 6b576f0..0d29f85 100644
+--- a/mesh_dataset/ear_dataset_setup_series.py
++++ b/mesh_dataset/ear_dataset_setup_series.py
+@@ -26,9 +26,11 @@ random.seed(10)
+ 
+ mean, std = [], []
+ 
++root_path = 'ear_dataset'
++
+ # Extract paths from dataset
+ # Only these with object
+-paths = [i.replace('\\', '/') for i in glob('ear_dataset_series/??????')]
++paths = [i.replace('\\', '/') for i in glob(f'{root_path}/??????')]
+ 
+ # ear_segmentation.pkl is a pickle file which contains the segmentation for each point in mean model
+ with open('ear_segmentation.pkl', 'rb') as f:
+@@ -133,8 +135,8 @@ for path in tqdm.tqdm(paths):
+ 
+ # Make train 90%, val 5%, test 5% split
+ 
+-paths_train, paths_val = train_test_split(paths, test_size=0.91225, random_state=random_state)
+-paths_val, paths_test = train_test_split(paths_val, test_size=0.4725, random_state=random_state)
++paths_train, paths_val = train_test_split(paths, train_size=0.91225, random_state=random_state)
++paths_val, paths_test = train_test_split(paths_val, train_size=0.4725, random_state=random_state)
+ 
+ metadata = dict(
+     type='ear_dataset_series',
+@@ -147,5 +149,5 @@ metadata = dict(
+     std=mean_fn(std)
+ )
+ 
+-with open('ear_dataset/metadata.pkl', 'wb') as f:
++with open(f'{root_path}/metadata.pkl', 'wb') as f:
+     dump(metadata, f)
+diff --git a/mesh_dataset/read_ear_data_real.py b/mesh_dataset/read_ear_data_real.py
+index 047007e..7090a81 100644
+--- a/mesh_dataset/read_ear_data_real.py
++++ b/mesh_dataset/read_ear_data_real.py
+@@ -3,7 +3,7 @@ Reads all .stl files from segments folder of a sample
+ concatenation > centering > point sampling
+ Usage: python read_ear_data_real [PATH TO REAL EAR DATA]
+ [PATH TO REAL EAR DATA]/*/segments/*.stl
+-"""
++
+ 
+ from glob import glob
+ import numpy as np
+@@ -46,4 +46,174 @@ for sample in glob(f'{data_path}/*/segments'):
+ 
+     oct_pcd = o3d.geometry.PointCloud()
+     oct_pcd.points = o3d.utility.Vector3dVector(np.array(points_filtered))
+-    o3d.io.write_point_cloud(f'oct_outputs/{sample_name}.ply', oct_pcd)
+\ No newline at end of file
++    o3d.io.write_point_cloud(f'oct_outputs/{sample_name}.ply', oct_pcd) """
++
++
++import os
++import glob
++import torch
++from torch.utils.data import Dataset
++import yaml
++import json
++import trimesh as trm
++import numpy as np
++from pickle import dump, load
++import trimesh as trm
++
++from scipy.spatial.transform import Rotation as R
++rot_mat = R.from_euler('xyz', [230, -10, 10], degrees=True).as_matrix()
++
++np.random.seed(0)
++
++class OCTSample():
++    def __init__(self, sample_folder) -> None:
++        self.sample_folder = sample_folder
++        self.idx = int(os.path.basename(sample_folder).split("_")[1])
++
++    def load_metadata(self, metadata_path):
++        with open(metadata_path, 'r') as f:
++            metadata = yaml.load(f, Loader=yaml.FullLoader)
++        return metadata
++
++
++    def load_landmarks(self, center, rotation, flip=False):
++        landmarks_folder = os.path.join(self.sample_folder, "annotations", "merged", "landmarks")
++        landmarks_filename_list = [
++            "annulus.json",
++            "umbo.json",
++            #"short_process_of_malleus.json",
++            "malleus_handle.json",
++            "long_process_of_incus.json",
++            #"incus.json",
++            "stapes.json"
++        ]
++
++        landmark_names = [
++            "anulus",
++            "Umbo",
++            #"short_process_of_malleus",
++            "malleus handle",
++            "long process of incus",
++            #"incus",
++            "stape"
++        ]
++        
++
++        landmarks_dict = {}
++        for u, f in enumerate(landmarks_filename_list):
++            if os.path.exists(os.path.join(landmarks_folder, f)):
++                with open(os.path.join(landmarks_folder, f), 'r') as f:
++                    landmarks_json = json.load(f)
++                    # landmarks_json_list.append(json.load(f))
++                    landmarks_points = np.array([c["position"]  for c in landmarks_json["markups"][0]["controlPoints"]])
++                    if flip:
++                        landmarks_points = landmarks_points * [-1, 1, 1] 
++                    landmarks_points = (rotation @ landmarks_points.T).T 
++                landmarks_dict[landmark_names[u]] = landmarks_points - center
++
++        return landmarks_dict
++
++
++    def load(self, ):
++        print("loading sample: ", self.sample_folder)
++        # load meta data from YAML file
++        self.meta = self.load_metadata(os.path.join(self.sample_folder, 'meta_{}.yaml'.format(self.idx)))
++        
++        # load image
++        seg_files = glob.glob(os.path.join(self.sample_folder, 'seg_*.stl'))
++        xyz = []
++        segmentation = []
++        for file in seg_files:
++            seg = trm.load(file)
++            if "tympanic_membrane" in file:
++                index = 0
++            elif "malleus" in file:
++                index = 1
++            elif "incus" in file:
++                index = 2
++            if "stapes" in file:
++                index = 3
++            elif "promontory" in file:
++                index = 4
++                continue
++            xyz.append(seg.vertices)
++            
++            index = -1
++            segmentation.append(np.zeros((seg.vertices.shape[0]))+index)
++
++        xyz = np.concatenate(xyz, axis=0)
++        segmentation = np.concatenate(segmentation, axis=0)
++
++        # flip left ears
++        if self.meta['patient_info']['side'] == 'left':
++            xyz = xyz * [-1, 1, 1]
++        
++        intra = trm.load('ear_dataset/004991/intra_surface.stl').vertices
++        # randomly choose 2048 points
++        random_indices = np.arange(len(xyz))
++        np.random.shuffle(random_indices)
++        xyz = xyz[random_indices[:2248]]
++        segmentation = segmentation[random_indices[:2248]]
++        xyz = (rot_mat @ xyz.T).T
++        center = (np.median(xyz, axis=0) - np.median(intra,axis=0))
++        xyz = xyz - center
++
++        # load landmarks
++        landmarks_list = self.load_landmarks(center, rotation=rot_mat, flip=self.meta['patient_info']['side'] == 'left')
++
++        return {
++            'target_xyz': xyz,
++            'segmentation': segmentation,
++            "landmarks": landmarks_list,
++            'metadata': self.meta,
++        }
++
++
++class OCTDataset(Dataset):
++    def __init__(self, 
++                data_folder,
++                num_samples=30,
++            ):
++        self.data_folder = data_folder
++        self.num_samples = num_samples
++        self.samples = []
++        self.get_samples()
++        print(len(self.samples))
++
++    def __len__(self):
++        return len(self.samples)
++
++    def get_samples(self):
++        for idx in range(self.num_samples):
++            sample_folder = os.path.join(self.data_folder, "sample_{}".format(idx))
++            self.samples.append(OCTSample(sample_folder))
++
++    def __getitem__(self, idx):
++        sample = self.samples[idx]
++        res = sample.load()
++
++        data = {
++            'target_xyz': torch.tensor(res["target_xyz"]),
++            'segmentations': torch.cat([ s.unsqueeze(dim=0) for s in res["segmentations"]], dim=0),
++            "segmentation_merged": torch.tensor(res["segmentation_merged"]),
++            "landmarks": res["landmarks"], # re-write collate_fn to land landmarks to tensor
++        }
++        return data
++    
++
++means, stds = [], []
++for i in range(43):
++    sample = OCTSample(f'DIOME_FanShapeCorr/sample_{i}')
++    sample = sample.load()
++    means.append(sample['target_xyz'].mean(0))
++    stds.append(sample['target_xyz'].std(0))
++    with open(f'DIOME_FanShapeCorr/sample_{i}/data_cached.pkl', 'wb') as f:
++        dump(sample, f)
++
++metadata = dict(
++    mean = np.stack(means).mean(0),
++    std = np.stack(stds).mean()
++)
++
++with open('DIOME_FanShapeCorr/metadata.pkl', 'wb') as f:
++    dump(metadata, f)
+\ No newline at end of file
+diff --git a/ngenet/models/NgeNet.py b/ngenet/models/NgeNet.py
+index a37505c..d610d73 100644
+--- a/ngenet/models/NgeNet.py
++++ b/ngenet/models/NgeNet.py
+@@ -217,7 +217,6 @@ class NgeNet(nn.Module):
+         batched_feats_m = batched_feats_m / torch.norm(batched_feats_m, dim=1, keepdim=True)
+         batched_feats_l = batched_feats_l / torch.norm(batched_feats_l, dim=1, keepdim=True)
+         batched_feats = torch.cat([batched_feats, overlap_scores, saliency_scores], dim=-1)
+-
+         return batched_feats, batched_feats_m, batched_feats_l
+ 
+ 
+diff --git a/regtr/data_loaders/__pycache__/__init__.cpython-310.pyc b/regtr/data_loaders/__pycache__/__init__.cpython-310.pyc
+index de2da84..91caf7e 100644
+Binary files a/regtr/data_loaders/__pycache__/__init__.cpython-310.pyc and b/regtr/data_loaders/__pycache__/__init__.cpython-310.pyc differ
+diff --git a/regtr/data_loaders/__pycache__/eardataset.cpython-310.pyc b/regtr/data_loaders/__pycache__/eardataset.cpython-310.pyc
+index 8eeee53..c77e2be 100644
+Binary files a/regtr/data_loaders/__pycache__/eardataset.cpython-310.pyc and b/regtr/data_loaders/__pycache__/eardataset.cpython-310.pyc differ
+diff --git a/regtr/data_loaders/eardataset.py b/regtr/data_loaders/eardataset.py
+index 4d75137..75614fc 100644
+--- a/regtr/data_loaders/eardataset.py
++++ b/regtr/data_loaders/eardataset.py
+@@ -20,7 +20,7 @@ class EarDataset(Dataset):
+         super().__init__()
+         self.logger = logging.getLogger(__name__)
+ 
+-        assert phase in ['train', 'val']
++        assert phase in ['train', 'val', 'test']
+ 
+         self.root = cfg.root
+         self.split = phase
+@@ -98,22 +98,22 @@ class EarDataset(Dataset):
+ class EarDatasetTest(Dataset):
+     def __init__(self, cfg, phase, transforms=None):
+         super().__init__()
+-        self.logger = logging.getLogger(__name__)
+-
+-        assert phase in ['train', 'val']
+-
+         self.root = cfg.root
+         self.split = phase
+         self.noisy = True
+         self.aug = True if phase == 'train' else False
+         self.overlap_radius = cfg.overlap_radius
+         self.max_points = 10000
++        test_path = cfg.oct_root
++        self.test_paths = glob.glob(os.path.join(test_path, 'sample_*'))
+         
+-        with open(os.path.join(self.root, 'metadata.pkl'), 'rb') as f:
++        with open(os.path.join(test_path, 'metadata.pkl'), 'rb') as f:
+             self.metadata = pickle.load(f)
+-        
+-        self.test_paths = glob.glob(cfg.oct_root)
+-        self.paths = [os.path.join(self.root, i.split("/")[-1]) for i in self.metadata[phase]]
++
++        with open(os.path.join(self.root, 'metadata.pkl'), 'rb') as f:
++            self.eardataset_metadata = pickle.load(f)
++
++        self.paths = [os.path.join(self.root, i.split("/")[-1]) for i in self.eardataset_metadata[phase]]
+         self.data_sample = self.load_sample(self.paths[0])
+ 
+     def __len__(self):
+@@ -124,23 +124,25 @@ class EarDatasetTest(Dataset):
+             data = pickle.load(f)
+         return data
+     
+-    def norm(self, arr):
+-        return (arr-self.metadata['mean'])/self.metadata['std']
++    def norm(self, arr, metadata):
++        return (arr-metadata['mean'])/metadata['std']
+ 
+     def __getitem__(self, item):
+         path = self.test_paths[item]
+-        data = np.load(path)
++        data = self.data_sample
++        test_data = self.load_sample(path)
+ 
+-        src_points_raw = self.data_sample['points_pre']
+-        src_points, src_faces = self.norm(src_points_raw), self.data_sample['faces'] # npy, (n, 3); npy, (f, 3)
++        src_points_raw = data['points_pre'] # preoperative model is always the same
++        src_points, src_faces = self.norm(src_points_raw, self.eardataset_metadata), data['faces'] # npy, (n, 3); npy, (f, 3)
+ 
+         tgt_points_full = np.array([])
+-        tgt_points_raw = data
+-        
+-        tgt_points = self.norm(tgt_points_raw) # npy, (m, 3)
++        tgt_points_raw = test_data['target_xyz']
++        tgt_points = self.norm(tgt_points_raw, self.eardataset_metadata) # npy, (m, 3)
+ 
+         displ = np.array([])
+ 
++        coors = np.array([])
++
+         src_overlap_mask, tgt_overlap_mask, coors = np.array([]), np.array([]), np.array([])
+ 
+         pair = {
+@@ -155,5 +157,7 @@ class EarDatasetTest(Dataset):
+             'src_path': path,
+             'tgt_path': path,
+             'overlap_p': 1,
++            'metadata': test_data['metadata'],
++            'landmarks': test_data['landmarks'],
+         }
+         return pair
+\ No newline at end of file
+diff --git a/testRegTr.ipynb b/testRegTr.ipynb
+index fd8dd4a..4899890 100644
+--- a/testRegTr.ipynb
++++ b/testRegTr.ipynb
+@@ -20,6 +20,7 @@
+     "import pickle\n",
+     "import torch\n",
+     "import time\n",
++    "from tqdm import tqdm\n",
+     "import numpy as np\n",
+     "from statistics import mean\n",
+     "from easydict import EasyDict as edict\n",
+@@ -36,6 +37,7 @@
+     "from regtr.utils.misc import load_config\n",
+     "from regtr.utils.se3_numpy import se3_transform\n",
+     "from regtr.utils.se3_torch import se3_transform as se3_transform_torch\n",
++    "from regtr.data_loaders.eardataset import EarDataset, EarDatasetTest\n",
+     "\n",
+     "import regtr.cvhelpers.visualization as cvv\n",
+     "import regtr.cvhelpers.colors as colors\n",
+@@ -53,7 +55,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 2,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -80,17 +82,20 @@
+     "                   only points strictly within the overlap region.\n",
+     "    \"\"\"\n",
+     "\n",
+-    "    large_pt_size = 4\n",
++    "    small_pt_size = 4\n",
++    "    large_pt_size = 8\n",
+     "    color_mapper = colormap.ScalarMappable(norm=None, cmap=colormap.get_cmap('coolwarm'))\n",
+     "    overlap_colors = (color_mapper.to_rgba(src_overlap[:, 0])[:, :3] * 255).astype(np.uint8)\n",
+     "    m = src_overlap[:, 0] > threshold\n",
+     "\n",
+     "    vis = cvv.Visualizer(\n",
+     "        win_size=(1600, 1000),\n",
+-    "        num_renderers=4)\n",
+-    "\n",
++    "        num_renderers=4,\n",
++    "        bg_color=(255, 255, 255)\n",
++    "    )\n",
++    "    \n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(src_xyz, colors=colors.RED),\n",
++    "        cvv.create_point_cloud(src_xyz, colors=colors.BLUE, pt_size=small_pt_size, alpha=0.25),\n",
+     "        renderer_idx=0\n",
+     "    )\n",
+     "    vis.add_object(\n",
+@@ -99,7 +104,7 @@
+     "    )\n",
+     "\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE, pt_size=small_pt_size, alpha=0.25),\n",
+     "        renderer_idx=1\n",
+     "    )\n",
+     "    vis.add_object(\n",
+@@ -109,21 +114,21 @@
+     "\n",
+     "    # Before registration\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(src_xyz, colors=colors.RED),\n",
++    "        cvv.create_point_cloud(src_xyz, colors=colors.BLUE, pt_size=small_pt_size),\n",
+     "        renderer_idx=2\n",
+     "    )\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE, pt_size=small_pt_size),\n",
+     "        renderer_idx=2\n",
+     "    )\n",
+     "\n",
+     "    # After registration\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(se3_transform(pose, src_xyz), colors=colors.RED),\n",
++    "        cvv.create_point_cloud(se3_transform(pose, src_xyz), colors=colors.BLUE, pt_size=small_pt_size),\n",
+     "        renderer_idx=3\n",
+     "    )\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE, pt_size=small_pt_size),\n",
+     "        renderer_idx=3\n",
+     "    )\n",
+     "\n",
+@@ -157,11 +162,11 @@
+     "\n",
+     "    # Before registration\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(src_xyz, colors=colors.RED),\n",
++    "        cvv.create_point_cloud(src_xyz, colors=colors.BLUE),\n",
+     "        renderer_idx=0\n",
+     "    )\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE),\n",
+     "        renderer_idx=0\n",
+     "    )\n",
+     "    vis.add_object(\n",
+@@ -171,11 +176,11 @@
+     "\n",
+     "    # After registration\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(src_xyz + displacement, colors=colors.RED),\n",
++    "        cvv.create_point_cloud(src_xyz + displacement, colors=colors.BLUE),\n",
+     "        renderer_idx=1\n",
+     "    )\n",
+     "    vis.add_object(\n",
+-    "        cvv.create_point_cloud(tgt_xyz, colors=colors.GREEN),\n",
++    "        cvv.create_point_cloud(tgt_xyz, colors=colors.ORANGE),\n",
+     "        renderer_idx=1\n",
+     "    )\n",
+     "\n",
+@@ -215,7 +220,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 3,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -227,25 +232,26 @@
+     "conf.dev = False\n",
+     "conf.num_workers = 0\n",
+     "conf.name = None\n",
+-    "conf.resume = 'D:/logs/eardataset/230224_074601_regtr_eardataset_standard/ckpt/model-88000.pth'"
++    "#conf.resume = 'D:/logs/eardataset/230224_074601_regtr_eardataset_standard/ckpt/model-88000.pth'\n",
++    "conf.resume = 'D:/mesh2mesh/trainResults/eardataset/240107_080636_regtr_eardataset_standard_resume/ckpt/model-66000.pth'"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 4,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stderr",
+      "output_type": "stream",
+      "text": [
+-      "\u001b[32m06/05 21:05:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mroot\u001b[0m - Output and logs will be saved to logs\\230605_210533\n",
+-      "\u001b[32m06/05 21:05:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Command: C:\\Users\\chenp\\AppData\\Roaming\\Python\\Python310\\site-packages\\ipykernel_launcher.py --ip=127.0.0.1 --stdin=9023 --control=9021 --hb=9020 --Session.signature_scheme=\"hmac-sha256\" --Session.key=b\"f30adf22-660c-4ce7-a551-82d493bb169e\" --shell=9022 --transport=\"tcp\" --iopub=9024 --f=c:\\Users\\chenp\\AppData\\Roaming\\jupyter\\runtime\\kernel-v2-250167HUL3JtQb41W.json\n",
+-      "\u001b[32m06/05 21:05:33\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Source is from Commit 7a68d167 (2023-05-02): update in RegTR\n",
+-      "\u001b[32m06/05 21:05:34\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Arguments: \n",
+-      "\u001b[32m06/05 21:05:35\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Instantiating model RegTR\n",
+-      "\u001b[32m06/05 21:05:35\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Loss weighting: {'overlap_5': 1.0, 'feature_5': 0.1, 'corr_5': 1.0, 'feature_un': 0.0}\n",
+-      "\u001b[32m06/05 21:05:35\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Config: d_embed:64, nheads:8, pre_norm:True, use_pos_emb:True, sa_val_has_pos_emb:True, ca_val_has_pos_emb:True\n"
++      "\u001b[32m01/26 09:18:53\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mroot\u001b[0m - Output and logs will be saved to logs\\240126_091853\n",
++      "\u001b[32m01/26 09:18:53\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Command: C:\\Users\\chenp\\AppData\\Roaming\\Python\\Python310\\site-packages\\ipykernel_launcher.py --f=c:\\Users\\chenp\\AppData\\Roaming\\jupyter\\runtime\\kernel-v2-30988h05UQcoknQoO.json\n",
++      "\u001b[32m01/26 09:18:53\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Source is from Commit 95412c13 (2023-09-06): Fixed one small BUG in test_script.py!\n",
++      "\u001b[32m01/26 09:18:54\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mregtr.cvhelpers.misc\u001b[0m - Arguments: \n",
++      "\u001b[32m01/26 09:18:54\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Instantiating model RegTR\n",
++      "\u001b[32m01/26 09:18:55\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Loss weighting: {'overlap_5': 1.0, 'feature_5': 0.1, 'corr_5': 1.0, 'feature_un': 0.0}\n",
++      "\u001b[32m01/26 09:18:55\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mRegTR\u001b[0m - Config: d_embed:64, nheads:8, pre_norm:True, use_pos_emb:True, sa_val_has_pos_emb:True, ca_val_has_pos_emb:True\n"
+      ]
+     }
+    ],
+@@ -282,8 +288,8 @@
+     "p_config = edict(p_config)\n",
+     "p_config.device = torch.cuda.current_device()\n",
+     "\n",
+-    "cfg.dataset = 'eardataset_test'\n",
+-    "test_loader = get_dataloader(cfg, phase='val')\n",
++    "cfg.dataset = 'eardataset'\n",
++    "test_loader = get_dataloader(cfg, phase='test')\n",
+     "Model = get_model(cfg.model)\n",
+     "model = Model(cfg)\n",
+     "trainer = Trainer(opt, niter=cfg.niter, grad_clip=cfg.grad_clip)\n",
+@@ -294,14 +300,14 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 5,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stderr",
+      "output_type": "stream",
+      "text": [
+-      "\u001b[32m06/05 21:05:38\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mCheckPointManager\u001b[0m - Loaded models from D:/logs/eardataset/230224_074601_regtr_eardataset_standard/ckpt/model-88000.pth\n",
++      "\u001b[32m01/26 09:18:58\u001b[0m \u001b[1;30m[INFO]\u001b[0m \u001b[34mCheckPointManager\u001b[0m - Loaded models from D:/mesh2mesh/trainResults/eardataset/240107_080636_regtr_eardataset_standard_resume/ckpt/model-66000.pth\n",
+       "                                                                                \r"
+      ]
+     }
+@@ -312,7 +318,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 6,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -347,18 +353,55 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 15,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
++   "source": [
++    "regtr_cd_l = []\n",
++    "number_of_points = []\n",
++    "for i in range(999):\n",
++    "    regtr_cd_l.append(computeCD(denorm(pred_src[i], metadata)[None], denorm(tgt_gt, metadata)[i][None], torch.zeros(5995,3)[None].cuda()).item())\n",
++    "    number_of_points.append(len(pred_tgt[i])/5995.0)"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
++   "metadata": {},
++   "outputs": [
++    {
++     "name": "stderr",
++     "output_type": "stream",
++     "text": [
++      "0it [00:00, ?it/s]"
++     ]
++    },
++    {
++     "name": "stderr",
++     "output_type": "stream",
++     "text": [
++      "43it [04:36,  6.44s/it]\n"
++     ]
++    }
++   ],
+    "source": [
+     "nn_thresh = 0.5\n",
+     "\n",
+     "transformations = []\n",
+     "nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l = [], [], [], []\n",
++    "regtr_cd_l = []\n",
++    "non_registered_landmark_loss_l = []\n",
++    "registered_partial_cd_l = []\n",
+     "wall_time = []\n",
+     "displ_l = []\n",
++    "side, status = [], []\n",
+     "cnt = 0\n",
+-    "for (src_norm, tgt_norm, tgt_full_norm, src_kp_norm, overlap_score, pose, displ, src_path) in zip(pred_src, pred_tgt, tgt_gt, pred_src_kp, pred_overlap_score, pred_pose, displ_gt, src_paths):\n",
++    "\n",
++    "test_dataset_real = EarDatasetTest(\n",
++    "    cfg, 'test'\n",
++    ")\n",
++    "\n",
++    "for pair_ind, (src_norm, tgt_norm, tgt_full_norm, src_kp_norm, overlap_score, pose, displ, src_path) in tqdm(enumerate(zip(pred_src, pred_tgt, tgt_gt, pred_src_kp, pred_overlap_score, pred_pose, displ_gt, src_paths))):\n",
+     "    t1 = time.time()\n",
+     "\n",
+     "    # Use KDTree to compute correnspondences\n",
+@@ -370,7 +413,7 @@
+     "    inds.append(indices)\n",
+     "\n",
+     "    # Transform and denorm pcds\n",
+-    "    src_transformed_norm = se3_transform_torch(pose, src_norm)\n",
++    "    src_transformed_norm = torch.tensor(se3_transform(pose.cpu().numpy(), src_norm.cpu().numpy()))\n",
+     "    src_denorm = denorm(src_norm, metadata)\n",
+     "    src_transformed_denorm = denorm(src_transformed_norm, metadata)\n",
+     "    tgt_denorm = denorm(tgt_norm, metadata)\n",
+@@ -381,6 +424,8 @@
+     "    warped_pcd, hist, _, timer = model_nonrigid.register(visualize=False, timer = timer)\n",
+     "    pred_displ = warped_pcd - src_denorm\n",
+     "    displ_l.append(pred_displ)\n",
++    "    wall_time.append(time.time()-t1)\n",
++    "    #registered_partial_cd_l.append(computeCD(src_denorm[indices][None], tgt_full_denorm[None], pred_displ[indices][None]).item())\n",
+     "    \n",
+     "    # Compute Metrics\n",
+     "    if cfg.dataset == 'eardataset':\n",
+@@ -394,6 +439,7 @@
+     "        pre_landmarks = [tgt_full_denorm[i].cpu() for i in l_inds]\n",
+     "        lndmk = landmark_loss(pre_landmarks, pred_landmarks)\n",
+     "        landmark_loss_l.append(lndmk)\n",
++    "        regtr_cd_l.append(computeCD(src_transformed_denorm[None], tgt_full_denorm[None], torch.zeros(src_transformed_denorm.shape)[None]).item())\n",
+     "\n",
+     "    else:\n",
+     "        sample_name = src_path.split('\\\\')[-1].split('.')[0]\n",
+@@ -402,8 +448,12 @@
+     "\n",
+     "        registered_cd_l.append(computeCD(src_denorm[None], tgt_denorm[None], pred_displ[None]).item())\n",
+     "\n",
+-    "        with open(f'mesh_dataset/oct_outputs/{sample_name}_lndmrks.pkl', 'rb') as f:\n",
+-    "            landmarks_intra = pickle.load(f)\n",
++    "        intra_data = test_dataset_real.__getitem__(pair_ind)\n",
++    "        intra_metadata = intra_data['metadata']\n",
++    "        side.append(intra_metadata['patient_info']['side'])\n",
++    "        status.append(intra_metadata['patient_info']['status'])\n",
++    "        \n",
++    "        landmarks_intra = intra_data['landmarks']\n",
+     "        \n",
+     "        if landmarks_intra != {}:\n",
+     "            pred_landmarks = [warped_pcd[landmarks[k]].cpu() for k, v in landmarks_intra.items()]\n",
+@@ -411,60 +461,80 @@
+     "            lndmk = landmark_loss(pred_landmarks, intra_landmarks)\n",
+     "            landmark_loss_l.append(lndmk)\n",
+     "\n",
+-    "    wall_time.append(time.time()-t1)\n",
++    "            pred_landmarks = [src_denorm[landmarks[k]].cpu() for k, v in landmarks_intra.items()]\n",
++    "            lndmk = landmark_loss(pred_landmarks, intra_landmarks)\n",
++    "            non_registered_landmark_loss_l.append(lndmk)\n",
+     "\n",
+-    "    if cnt > 1:\n",
+-    "        break\n",
+-    "    cnt += 1"
++    "        else:\n",
++    "            landmark_loss_l.append(-1)\n",
++    "            non_registered_landmark_loss_l.append(-1)\n",
++    "\n"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 16,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+-      "Non-registered cd score: 11288.462544123331\n",
+-      "Registered cd score: 11167.303678164879\n",
+-      "Landmark loss: 1.1502150136555136\n",
+-      "Wall time: 5.855260610580444 s\n"
++      "Non-registered cd score: 4.179325458615325\n",
++      "Registered cd score: 0.8784782373627951\n",
++      "Landmark loss: 1.2834254538179524\n",
++      "Wall time: 6.4260178055874135 s\n"
+      ]
+     }
+    ],
+    "source": [
+     "print('Non-registered cd score:', mean(nonregistered_cd_l))\n",
+     "print('Registered cd score:', mean(registered_cd_l))\n",
++    "#print('Registered partial cd score:', mean(registered_partial_cd_l))\n",
+     "if cfg.dataset == 'eardataset':\n",
+     "    print('Mean displacement error: ', mean(mean_displacement_error_l))\n",
+-    "print('Landmark loss:', mean(landmark_loss_l))\n",
++    "print('Landmark loss:', mean([i for i in landmark_loss_l if i != -1]))\n",
+     "print('Wall time:', mean(wall_time), 's')"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 40,
++   "execution_count": 43,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "visualize_result(src_denorm.cuda(),  tgt_denorm, pred_displ.cuda(), indices)"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 14,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+-    "visualize_result(src_denorm, tgt_denorm, pred_displ, indices)"
++    "ind = 27\n",
++    "visualize_result_regtr(pred_src[ind].cpu().numpy(), pred_tgt[ind].cpu().numpy(), pred_src_kp[ind].cpu().numpy(), pred_tgt_kp[ind].cpu().numpy(), pred_overlap_score[ind].cpu().numpy(), pred_pose[ind].cpu().numpy(), threshold=0)"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 41,
++   "execution_count": 29,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+-    "ind = 9\n",
+-    "visualize_result_regtr(pred_src[ind].cpu().numpy(), pred_tgt[ind].cpu().numpy(), pred_src_kp[ind].cpu().numpy(), pred_tgt_kp[ind].cpu().numpy(), pred_overlap_score[ind].cpu().numpy(), pred_pose[ind].cpu().numpy(), threshold=nn_thresh)"
++    "for i in range(43):\n",
++    "    data = dict(\n",
++    "        src = denorm(se3_transform(pred_pose[ind].cpu().numpy(), pred_src[ind].cpu().numpy()), metadata),\n",
++    "        inds = inds[i],\n",
++    "    )\n",
++    "    with open(f'mesh_dataset/DIOME_FanShapeCorr/sample_{i}/regtr_pred.pkl', 'wb') as f:\n",
++    "        pickle.dump(data, f)\n",
++    "    "
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 42,
++   "execution_count": 13,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -475,37 +545,682 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 45,
++   "execution_count": 15,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "\"\"\" On normal dataset\n",
++    "Non-registered cd score: 1.4596144970549785\n",
++    "Registered cd score: 0.29597098740516437\n",
++    "Registered partial cd score: 2.3302804929076717\n",
++    "Mean displacement error:  1.2692070097504926\n",
++    "Landmark loss: 0.3599099684169502\n",
++    "Wall time: 8.540204111336594 s \"\"\"\n",
++    "\n",
++    "\"\"\" On high variety dataset\n",
++    "Non-registered cd score: 1.4065552084325432\n",
++    "Registered cd score: 1.0310056967748418\n",
++    "Registered partial cd score: 1.5106343214397315\n",
++    "Mean displacement error:  1.7764664716548748\n",
++    "Landmark loss: 0.8699200562834195\n",
++    "Wall time: 6.008897996879555 s \n",
++    "\n",
++    "On corrected DIOME\n",
++    "Non-registered cd score: 4.179325458615325\n",
++    "Registered cd score: 0.8000558288984521\n",
++    "Landmark loss: 1.2649516742809437\n",
++    "Wall time: 6.067085615424222 s\"\"\""
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 72,
++   "metadata": {},
++   "outputs": [],
++   "source": [
++    "results_dict_invivo = dict(\n",
++    "    nonregistered_cd_l=nonregistered_cd_l,\n",
++    "    non_registered_landmark_loss_l=non_registered_landmark_loss_l,\n",
++    "    registered_cd_l=registered_cd_l,\n",
++    "    landmark_loss_l=[i if i != -1 else float('nan') for i in landmark_loss_l],\n",
++    "    wall_time_models=wall_time,\n",
++    "    displ=[i.cpu().numpy() for i in displ_l],\n",
++    "    #inds=inds,\n",
++    "    side=side,\n",
++    "    status=status\n",
++    ")\n",
++    "\n",
++    "import pandas as pd\n",
++    "df = pd.DataFrame.from_dict(results_dict_invivo)\n",
++    "df.to_csv('finalResults/results_invivo_regtr.csv')"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 11,
++   "metadata": {},
++   "outputs": [
++    {
++     "ename": "ValueError",
++     "evalue": "All arrays must be of the same length",
++     "output_type": "error",
++     "traceback": [
++      "\u001b[1;31m---------------------------------------------------------------------------\u001b[0m",
++      "\u001b[1;31mValueError\u001b[0m                                Traceback (most recent call last)",
++      "Cell \u001b[1;32mIn[11], line 14\u001b[0m\n\u001b[0;32m      1\u001b[0m results_dict_exvivo \u001b[38;5;241m=\u001b[39m \u001b[38;5;28mdict\u001b[39m(\n\u001b[0;32m      2\u001b[0m     nonregistered_cd_l\u001b[38;5;241m=\u001b[39mnonregistered_cd_l,\n\u001b[0;32m      3\u001b[0m     non_registered_landmark_loss_l\u001b[38;5;241m=\u001b[39mnon_registered_landmark_loss_l,\n\u001b[1;32m   (...)\u001b[0m\n\u001b[0;32m     10\u001b[0m     len_inds\u001b[38;5;241m=\u001b[39m[\u001b[38;5;28mlen\u001b[39m(i) \u001b[38;5;28;01mfor\u001b[39;00m i \u001b[38;5;129;01min\u001b[39;00m inds],\n\u001b[0;32m     11\u001b[0m )\n\u001b[0;32m     13\u001b[0m \u001b[38;5;28;01mimport\u001b[39;00m \u001b[38;5;21;01mpandas\u001b[39;00m \u001b[38;5;28;01mas\u001b[39;00m \u001b[38;5;21;01mpd\u001b[39;00m\n\u001b[1;32m---> 14\u001b[0m df \u001b[38;5;241m=\u001b[39m \u001b[43mpd\u001b[49m\u001b[38;5;241;43m.\u001b[39;49m\u001b[43mDataFrame\u001b[49m\u001b[38;5;241;43m.\u001b[39;49m\u001b[43mfrom_dict\u001b[49m\u001b[43m(\u001b[49m\u001b[43mresults_dict_exvivo\u001b[49m\u001b[43m)\u001b[49m\n\u001b[0;32m     15\u001b[0m df\u001b[38;5;241m.\u001b[39mto_csv(\u001b[38;5;124m'\u001b[39m\u001b[38;5;124mfinalResults/results_exvivo_regtr.csv\u001b[39m\u001b[38;5;124m'\u001b[39m)\n",
++      "File \u001b[1;32mc:\\Users\\chenp\\anaconda3\\envs\\ml\\lib\\site-packages\\pandas\\core\\frame.py:1764\u001b[0m, in \u001b[0;36mDataFrame.from_dict\u001b[1;34m(cls, data, orient, dtype, columns)\u001b[0m\n\u001b[0;32m   1758\u001b[0m     \u001b[38;5;28;01mraise\u001b[39;00m \u001b[38;5;167;01mValueError\u001b[39;00m(\n\u001b[0;32m   1759\u001b[0m         \u001b[38;5;124mf\u001b[39m\u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mExpected \u001b[39m\u001b[38;5;124m'\u001b[39m\u001b[38;5;124mindex\u001b[39m\u001b[38;5;124m'\u001b[39m\u001b[38;5;124m, \u001b[39m\u001b[38;5;124m'\u001b[39m\u001b[38;5;124mcolumns\u001b[39m\u001b[38;5;124m'\u001b[39m\u001b[38;5;124m or \u001b[39m\u001b[38;5;124m'\u001b[39m\u001b[38;5;124mtight\u001b[39m\u001b[38;5;124m'\u001b[39m\u001b[38;5;124m for orient parameter. \u001b[39m\u001b[38;5;124m\"\u001b[39m\n\u001b[0;32m   1760\u001b[0m         \u001b[38;5;124mf\u001b[39m\u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mGot \u001b[39m\u001b[38;5;124m'\u001b[39m\u001b[38;5;132;01m{\u001b[39;00morient\u001b[38;5;132;01m}\u001b[39;00m\u001b[38;5;124m'\u001b[39m\u001b[38;5;124m instead\u001b[39m\u001b[38;5;124m\"\u001b[39m\n\u001b[0;32m   1761\u001b[0m     )\n\u001b[0;32m   1763\u001b[0m \u001b[38;5;28;01mif\u001b[39;00m orient \u001b[38;5;241m!=\u001b[39m \u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mtight\u001b[39m\u001b[38;5;124m\"\u001b[39m:\n\u001b[1;32m-> 1764\u001b[0m     \u001b[38;5;28;01mreturn\u001b[39;00m \u001b[38;5;28;43mcls\u001b[39;49m\u001b[43m(\u001b[49m\u001b[43mdata\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mindex\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[43mindex\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mcolumns\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[43mcolumns\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mdtype\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[43mdtype\u001b[49m\u001b[43m)\u001b[49m\n\u001b[0;32m   1765\u001b[0m \u001b[38;5;28;01melse\u001b[39;00m:\n\u001b[0;32m   1766\u001b[0m     realdata \u001b[38;5;241m=\u001b[39m data[\u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mdata\u001b[39m\u001b[38;5;124m\"\u001b[39m]\n",
++      "File \u001b[1;32mc:\\Users\\chenp\\anaconda3\\envs\\ml\\lib\\site-packages\\pandas\\core\\frame.py:664\u001b[0m, in \u001b[0;36mDataFrame.__init__\u001b[1;34m(self, data, index, columns, dtype, copy)\u001b[0m\n\u001b[0;32m    658\u001b[0m     mgr \u001b[38;5;241m=\u001b[39m \u001b[38;5;28mself\u001b[39m\u001b[38;5;241m.\u001b[39m_init_mgr(\n\u001b[0;32m    659\u001b[0m         data, axes\u001b[38;5;241m=\u001b[39m{\u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mindex\u001b[39m\u001b[38;5;124m\"\u001b[39m: index, \u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mcolumns\u001b[39m\u001b[38;5;124m\"\u001b[39m: columns}, dtype\u001b[38;5;241m=\u001b[39mdtype, copy\u001b[38;5;241m=\u001b[39mcopy\n\u001b[0;32m    660\u001b[0m     )\n\u001b[0;32m    662\u001b[0m \u001b[38;5;28;01melif\u001b[39;00m \u001b[38;5;28misinstance\u001b[39m(data, \u001b[38;5;28mdict\u001b[39m):\n\u001b[0;32m    663\u001b[0m     \u001b[38;5;66;03m# GH#38939 de facto copy defaults to False only in non-dict cases\u001b[39;00m\n\u001b[1;32m--> 664\u001b[0m     mgr \u001b[38;5;241m=\u001b[39m \u001b[43mdict_to_mgr\u001b[49m\u001b[43m(\u001b[49m\u001b[43mdata\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mindex\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mcolumns\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mdtype\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[43mdtype\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mcopy\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[43mcopy\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mtyp\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[43mmanager\u001b[49m\u001b[43m)\u001b[49m\n\u001b[0;32m    665\u001b[0m \u001b[38;5;28;01melif\u001b[39;00m \u001b[38;5;28misinstance\u001b[39m(data, ma\u001b[38;5;241m.\u001b[39mMaskedArray):\n\u001b[0;32m    666\u001b[0m     \u001b[38;5;28;01mimport\u001b[39;00m \u001b[38;5;21;01mnumpy\u001b[39;00m\u001b[38;5;21;01m.\u001b[39;00m\u001b[38;5;21;01mma\u001b[39;00m\u001b[38;5;21;01m.\u001b[39;00m\u001b[38;5;21;01mmrecords\u001b[39;00m \u001b[38;5;28;01mas\u001b[39;00m \u001b[38;5;21;01mmrecords\u001b[39;00m\n",
++      "File \u001b[1;32mc:\\Users\\chenp\\anaconda3\\envs\\ml\\lib\\site-packages\\pandas\\core\\internals\\construction.py:493\u001b[0m, in \u001b[0;36mdict_to_mgr\u001b[1;34m(data, index, columns, dtype, typ, copy)\u001b[0m\n\u001b[0;32m    489\u001b[0m     \u001b[38;5;28;01melse\u001b[39;00m:\n\u001b[0;32m    490\u001b[0m         \u001b[38;5;66;03m# dtype check to exclude e.g. range objects, scalars\u001b[39;00m\n\u001b[0;32m    491\u001b[0m         arrays \u001b[38;5;241m=\u001b[39m [x\u001b[38;5;241m.\u001b[39mcopy() \u001b[38;5;28;01mif\u001b[39;00m \u001b[38;5;28mhasattr\u001b[39m(x, \u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mdtype\u001b[39m\u001b[38;5;124m\"\u001b[39m) \u001b[38;5;28;01melse\u001b[39;00m x \u001b[38;5;28;01mfor\u001b[39;00m x \u001b[38;5;129;01min\u001b[39;00m arrays]\n\u001b[1;32m--> 493\u001b[0m \u001b[38;5;28;01mreturn\u001b[39;00m \u001b[43marrays_to_mgr\u001b[49m\u001b[43m(\u001b[49m\u001b[43marrays\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mcolumns\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mindex\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mdtype\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[43mdtype\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mtyp\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[43mtyp\u001b[49m\u001b[43m,\u001b[49m\u001b[43m \u001b[49m\u001b[43mconsolidate\u001b[49m\u001b[38;5;241;43m=\u001b[39;49m\u001b[43mcopy\u001b[49m\u001b[43m)\u001b[49m\n",
++      "File \u001b[1;32mc:\\Users\\chenp\\anaconda3\\envs\\ml\\lib\\site-packages\\pandas\\core\\internals\\construction.py:118\u001b[0m, in \u001b[0;36marrays_to_mgr\u001b[1;34m(arrays, columns, index, dtype, verify_integrity, typ, consolidate)\u001b[0m\n\u001b[0;32m    115\u001b[0m \u001b[38;5;28;01mif\u001b[39;00m verify_integrity:\n\u001b[0;32m    116\u001b[0m     \u001b[38;5;66;03m# figure out the index, if necessary\u001b[39;00m\n\u001b[0;32m    117\u001b[0m     \u001b[38;5;28;01mif\u001b[39;00m index \u001b[38;5;129;01mis\u001b[39;00m \u001b[38;5;28;01mNone\u001b[39;00m:\n\u001b[1;32m--> 118\u001b[0m         index \u001b[38;5;241m=\u001b[39m \u001b[43m_extract_index\u001b[49m\u001b[43m(\u001b[49m\u001b[43marrays\u001b[49m\u001b[43m)\u001b[49m\n\u001b[0;32m    119\u001b[0m     \u001b[38;5;28;01melse\u001b[39;00m:\n\u001b[0;32m    120\u001b[0m         index \u001b[38;5;241m=\u001b[39m ensure_index(index)\n",
++      "File \u001b[1;32mc:\\Users\\chenp\\anaconda3\\envs\\ml\\lib\\site-packages\\pandas\\core\\internals\\construction.py:666\u001b[0m, in \u001b[0;36m_extract_index\u001b[1;34m(data)\u001b[0m\n\u001b[0;32m    664\u001b[0m lengths \u001b[38;5;241m=\u001b[39m \u001b[38;5;28mlist\u001b[39m(\u001b[38;5;28mset\u001b[39m(raw_lengths))\n\u001b[0;32m    665\u001b[0m \u001b[38;5;28;01mif\u001b[39;00m \u001b[38;5;28mlen\u001b[39m(lengths) \u001b[38;5;241m>\u001b[39m \u001b[38;5;241m1\u001b[39m:\n\u001b[1;32m--> 666\u001b[0m     \u001b[38;5;28;01mraise\u001b[39;00m \u001b[38;5;167;01mValueError\u001b[39;00m(\u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mAll arrays must be of the same length\u001b[39m\u001b[38;5;124m\"\u001b[39m)\n\u001b[0;32m    668\u001b[0m \u001b[38;5;28;01mif\u001b[39;00m have_dicts:\n\u001b[0;32m    669\u001b[0m     \u001b[38;5;28;01mraise\u001b[39;00m \u001b[38;5;167;01mValueError\u001b[39;00m(\n\u001b[0;32m    670\u001b[0m         \u001b[38;5;124m\"\u001b[39m\u001b[38;5;124mMixing dicts with non-Series may lead to ambiguous ordering.\u001b[39m\u001b[38;5;124m\"\u001b[39m\n\u001b[0;32m    671\u001b[0m     )\n",
++      "\u001b[1;31mValueError\u001b[0m: All arrays must be of the same length"
++     ]
++    }
++   ],
++   "source": [
++    "results_dict_exvivo = dict(\n",
++    "    nonregistered_cd_l=nonregistered_cd_l,\n",
++    "    non_registered_landmark_loss_l=non_registered_landmark_loss_l,\n",
++    "    mean_displacement_error_l=mean_displacement_error_l,\n",
++    "    registered_cd_l=registered_cd_l,\n",
++    "    regtr_cd_l=regtr_cd_l,\n",
++    "    landmark_loss_l=[i if i != -1 else float('nan') for i in landmark_loss_l],\n",
++    "    wall_time_models=wall_time,\n",
++    "    displ=[i.cpu().numpy() for i in displ_l],\n",
++    "    len_inds=[len(i) for i in inds],\n",
++    ")\n",
++    "\n",
++    "import pandas as pd\n",
++    "df = pd.DataFrame.from_dict(results_dict_exvivo)\n",
++    "df.to_csv('finalResults/results_exvivo_regtr.csv')"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 12,
+    "metadata": {},
+    "outputs": [
+     {
+      "data": {
+       "text/plain": [
+-       "0.6593828190158465"
++       "{'nonregistered_cd_l': [3.7896695137023926,\n",
++       "  3.1711254119873047,\n",
++       "  4.182586193084717,\n",
++       "  4.3406901359558105,\n",
++       "  3.8241357803344727,\n",
++       "  3.9912195205688477,\n",
++       "  4.094041347503662,\n",
++       "  4.289969444274902,\n",
++       "  3.3054850101470947,\n",
++       "  4.003477573394775,\n",
++       "  3.795717716217041,\n",
++       "  4.9285054206848145,\n",
++       "  3.910257339477539,\n",
++       "  4.329022407531738,\n",
++       "  3.692352771759033,\n",
++       "  3.598085403442383,\n",
++       "  3.807713031768799,\n",
++       "  4.018343448638916,\n",
++       "  3.5196633338928223,\n",
++       "  3.479428291320801,\n",
++       "  4.419487953186035,\n",
++       "  5.283065319061279,\n",
++       "  3.314378261566162,\n",
++       "  3.9402294158935547,\n",
++       "  4.00531005859375,\n",
++       "  4.145073890686035,\n",
++       "  3.203859806060791,\n",
++       "  3.8170175552368164,\n",
++       "  3.7523105144500732,\n",
++       "  4.265561580657959,\n",
++       "  3.732243537902832,\n",
++       "  4.221164703369141,\n",
++       "  3.617527961730957,\n",
++       "  7.138841152191162,\n",
++       "  4.342683792114258,\n",
++       "  9.291189193725586,\n",
++       "  6.096135139465332,\n",
++       "  3.4366393089294434,\n",
++       "  4.185103893280029,\n",
++       "  3.697648286819458,\n",
++       "  3.775142192840576,\n",
++       "  3.6942551136016846,\n",
++       "  4.264636993408203],\n",
++       " 'non_registered_landmark_loss_l': [3.252044392746204,\n",
++       "  3.1537877856667444,\n",
++       "  3.2990724903202717,\n",
++       "  3.1322179024641827,\n",
++       "  2.6141833060078716,\n",
++       "  2.80407376504898,\n",
++       "  2.4567169620673934,\n",
++       "  2.6394541420440345,\n",
++       "  3.22544077193118,\n",
++       "  2.6914898142667236,\n",
++       "  2.3790020956149402,\n",
++       "  2.961997620992667,\n",
++       "  3.0981139341169537,\n",
++       "  2.1733443266566934,\n",
++       "  3.2352547186809586,\n",
++       "  3.358216167057358,\n",
++       "  2.6971368791081014,\n",
++       "  2.4904616553460417,\n",
++       "  3.123831035679109,\n",
++       "  3.277404917349666,\n",
++       "  2.610093341351266,\n",
++       "  3.583515221541407,\n",
++       "  2.2633497491131647,\n",
++       "  2.9777131343725727,\n",
++       "  2.657760152464095,\n",
++       "  2.383574755538723,\n",
++       "  2.3495751812779018,\n",
++       "  2.602606662574346,\n",
++       "  3.1153516128806915,\n",
++       "  3.5298036598859768,\n",
++       "  3.174080639857209,\n",
++       "  2.765279385199239,\n",
++       "  -1,\n",
++       "  -1,\n",
++       "  3.2612901284551215,\n",
++       "  -1,\n",
++       "  -1,\n",
++       "  -1,\n",
++       "  3.472726789554148,\n",
++       "  3.324328282354659,\n",
++       "  3.2186397121285792,\n",
++       "  3.1481056905433005,\n",
++       "  2.6083498068219724],\n",
++       " 'mean_displacement_error_l': [],\n",
++       " 'registered_cd_l': [0.6556708216667175,\n",
++       "  1.2251075506210327,\n",
++       "  0.5937372446060181,\n",
++       "  0.9992550611495972,\n",
++       "  0.9485067129135132,\n",
++       "  0.833729088306427,\n",
++       "  0.6857023239135742,\n",
++       "  0.4163786470890045,\n",
++       "  0.9819173812866211,\n",
++       "  0.6647234559059143,\n",
++       "  0.812262237071991,\n",
++       "  0.3674401640892029,\n",
++       "  0.7412554621696472,\n",
++       "  0.634409487247467,\n",
++       "  0.9195992350578308,\n",
++       "  0.20269200205802917,\n",
++       "  0.460379958152771,\n",
++       "  0.6274109482765198,\n",
++       "  0.9312979578971863,\n",
++       "  0.762189507484436,\n",
++       "  0.28606709837913513,\n",
++       "  0.4767434895038605,\n",
++       "  0.16313880681991577,\n",
++       "  1.4003201723098755,\n",
++       "  0.24115720391273499,\n",
++       "  0.3546357750892639,\n",
++       "  1.3953161239624023,\n",
++       "  1.2780834436416626,\n",
++       "  1.3219237327575684,\n",
++       "  1.6409285068511963,\n",
++       "  1.0105611085891724,\n",
++       "  0.49987173080444336,\n",
++       "  0.48040828108787537,\n",
++       "  1.6512986421585083,\n",
++       "  1.0793904066085815,\n",
++       "  0.7685836553573608,\n",
++       "  3.2074172496795654,\n",
++       "  0.9386879801750183,\n",
++       "  1.1784061193466187,\n",
++       "  0.6053820252418518,\n",
++       "  1.3642443418502808,\n",
++       "  1.6233680248260498,\n",
++       "  0.34496504068374634],\n",
++       " 'regtr_cd_l': [],\n",
++       " 'landmark_loss_l': [1.3565777636541152,\n",
++       "  1.323498683964781,\n",
++       "  1.304952308614121,\n",
++       "  1.2670939415318603,\n",
++       "  0.8565642222057189,\n",
++       "  0.7800619005460254,\n",
++       "  1.5740505121983903,\n",
++       "  0.6880251925495965,\n",
++       "  1.4380097224018171,\n",
++       "  0.6719507429207555,\n",
++       "  0.5127521189630583,\n",
++       "  2.1811366586572363,\n",
++       "  1.2061147891788147,\n",
++       "  0.995548042549053,\n",
++       "  1.1677908276320081,\n",
++       "  2.4873998415426435,\n",
++       "  1.1403294143111433,\n",
++       "  0.7075394529647866,\n",
++       "  1.4487586190070627,\n",
++       "  1.9773328995071373,\n",
++       "  0.9412783577420615,\n",
++       "  1.4646760628293982,\n",
++       "  0.9445739895960994,\n",
++       "  1.3806948258053862,\n",
++       "  1.428910633008007,\n",
++       "  1.3362489609898824,\n",
++       "  1.414168283459154,\n",
++       "  0.7854465227607847,\n",
++       "  1.61837721643771,\n",
++       "  1.5441506216801286,\n",
++       "  1.5736689266414632,\n",
++       "  0.6812716419122167,\n",
++       "  nan,\n",
++       "  nan,\n",
++       "  1.5011283940671523,\n",
++       "  nan,\n",
++       "  nan,\n",
++       "  nan,\n",
++       "  1.3175393814319045,\n",
++       "  1.5635378059616412,\n",
++       "  1.4350898006909194,\n",
++       "  1.3546787842290517,\n",
++       "  1.3992393809391057],\n",
++       " 'wall_time_models': [6.9317708015441895,\n",
++       "  6.437016487121582,\n",
++       "  6.436860084533691,\n",
++       "  6.423142194747925,\n",
++       "  6.447319507598877,\n",
++       "  6.4355247020721436,\n",
++       "  6.499580144882202,\n",
++       "  6.483411073684692,\n",
++       "  6.467432737350464,\n",
++       "  6.454928398132324,\n",
++       "  6.469520807266235,\n",
++       "  6.436351537704468,\n",
++       "  6.486346960067749,\n",
++       "  6.112354040145874,\n",
++       "  6.374316692352295,\n",
++       "  6.44884467124939,\n",
++       "  6.489924907684326,\n",
++       "  6.431993007659912,\n",
++       "  6.451541185379028,\n",
++       "  6.471219301223755,\n",
++       "  6.437463760375977,\n",
++       "  6.16436767578125,\n",
++       "  6.489327669143677,\n",
++       "  6.476228952407837,\n",
++       "  6.19663405418396,\n",
++       "  6.512143611907959,\n",
++       "  6.486942529678345,\n",
++       "  6.460383415222168,\n",
++       "  6.496415615081787,\n",
++       "  6.491400241851807,\n",
++       "  6.470926761627197,\n",
++       "  6.528425216674805,\n",
++       "  5.708330869674683,\n",
++       "  6.239736557006836,\n",
++       "  6.496598482131958,\n",
++       "  6.481844663619995,\n",
++       "  6.42962384223938,\n",
++       "  6.393697023391724,\n",
++       "  6.5106096267700195,\n",
++       "  6.481670141220093,\n",
++       "  6.209428310394287,\n",
++       "  6.470844984054565,\n",
++       "  6.496322393417358],\n",
++       " 'displ': [array([[ 3.2509995,  3.9492464, -3.7346258],\n",
++       "         [ 3.2665215,  3.8851233, -3.674739 ],\n",
++       "         [ 3.2997017,  3.991187 , -3.7172394],\n",
++       "         ...,\n",
++       "         [-2.7381477,  3.5016527,  1.0102882],\n",
++       "         [-2.6631012,  3.4166918,  1.0243607],\n",
++       "         [-2.8449287,  3.6017036,  0.982316 ]], dtype=float32),\n",
++       "  array([[ 2.1002998 ,  3.940094  , -4.325386  ],\n",
++       "         [ 2.1342678 ,  3.8903465 , -4.255295  ],\n",
++       "         [ 2.1616783 ,  3.976841  , -4.3037653 ],\n",
++       "         ...,\n",
++       "         [-2.9122734 ,  2.1769772 , -0.40903425],\n",
++       "         [-2.810566  ,  2.1069975 , -0.3854003 ],\n",
++       "         [-3.0525055 ,  2.2648773 , -0.44493246]], dtype=float32),\n",
++       "  array([[ 4.0485516,  4.6533046, -2.9305115],\n",
++       "         [ 4.105831 ,  4.5710034, -2.8497934],\n",
++       "         [ 4.1583614,  4.6724763, -2.8687353],\n",
++       "         ...,\n",
++       "         [-3.3854618,  3.4156055, -0.5949917],\n",
++       "         [-3.2631054,  3.338315 , -0.5686197],\n",
++       "         [-3.5504017,  3.5067978, -0.6331458]], dtype=float32),\n",
++       "  array([[ 3.0680904 ,  4.621882  , -3.698372  ],\n",
++       "         [ 3.1038685 ,  4.560724  , -3.6369476 ],\n",
++       "         [ 3.133772  ,  4.678717  , -3.6849136 ],\n",
++       "         ...,\n",
++       "         [-2.9476528 ,  2.4455233 , -0.9370303 ],\n",
++       "         [-2.8235855 ,  2.3692694 , -0.9024544 ],\n",
++       "         [-3.1161346 ,  2.535246  , -0.98932457]], dtype=float32),\n",
++       "  array([[ 2.3441124,  5.570034 , -2.880742 ],\n",
++       "         [ 2.3871422,  5.5059023, -2.8791027],\n",
++       "         [ 2.373621 ,  5.641795 , -2.85435  ],\n",
++       "         ...,\n",
++       "         [-3.5577316,  1.7081223,  1.1847115],\n",
++       "         [-3.469349 ,  1.6452427,  1.1805878],\n",
++       "         [-3.6770725,  1.7865362,  1.179739 ]], dtype=float32),\n",
++       "  array([[ 2.1404266,  4.65424  , -3.1411734],\n",
++       "         [ 2.2153625,  4.5996675, -3.0805864],\n",
++       "         [ 2.2533684,  4.698522 , -3.110425 ],\n",
++       "         ...,\n",
++       "         [-4.067753 ,  2.43081  ,  1.2957401],\n",
++       "         [-3.9962368,  2.3373232,  1.3068008],\n",
++       "         [-4.157484 ,  2.5430431,  1.2737646]], dtype=float32),\n",
++       "  array([[ 1.8326378 , -3.2258692 ,  1.6490097 ],\n",
++       "         [ 1.8187313 , -3.1960917 ,  1.6882219 ],\n",
++       "         [ 1.8572388 , -3.190857  ,  1.7007809 ],\n",
++       "         ...,\n",
++       "         [-1.6657352 ,  1.235157  ,  0.2745943 ],\n",
++       "         [-1.6458225 ,  1.1891632 ,  0.35514832],\n",
++       "         [-1.6820793 ,  1.286972  ,  0.1614933 ]], dtype=float32),\n",
++       "  array([[ 2.459734 ,  3.6080866, -4.088928 ],\n",
++       "         [ 2.5189362,  3.600833 , -3.9976788],\n",
++       "         [ 2.5760155,  3.706748 , -4.013852 ],\n",
++       "         ...,\n",
++       "         [-1.6797276,  3.1045208,  2.4208632],\n",
++       "         [-1.6193142,  3.0340939,  2.4411173],\n",
++       "         [-1.7480392,  3.1927586,  2.370411 ]], dtype=float32),\n",
++       "  array([[ 0.6996536 ,  3.7676048 , -4.028061  ],\n",
++       "         [ 0.7180824 ,  3.7096548 , -3.960703  ],\n",
++       "         [ 0.76781845,  3.824461  , -3.9796124 ],\n",
++       "         ...,\n",
++       "         [-2.9611206 ,  1.5325298 , -0.25872087],\n",
++       "         [-2.871851  ,  1.4758329 , -0.23807907],\n",
++       "         [-3.0853615 ,  1.6018438 , -0.28936577]], dtype=float32),\n",
++       "  array([[ 4.4523087,  2.6990376, -2.844823 ],\n",
++       "         [ 4.4871597,  2.6279106, -2.7891912],\n",
++       "         [ 4.5856876,  2.702034 , -2.8187742],\n",
++       "         ...,\n",
++       "         [-2.2913113,  2.8959074,  0.708786 ],\n",
++       "         [-2.1701622,  2.8078012,  0.7178278],\n",
++       "         [-2.4397964,  2.9970007,  0.6960087]], dtype=float32),\n",
++       "  array([[ 1.0813999 ,  4.181466  , -3.1186981 ],\n",
++       "         [ 1.2965183 ,  4.153529  , -3.1299477 ],\n",
++       "         [ 1.4533653 ,  4.2457867 , -3.192255  ],\n",
++       "         ...,\n",
++       "         [-0.21172333, -0.55849075,  0.20235252],\n",
++       "         [-0.13304329, -0.61929893,  0.23556614],\n",
++       "         [-0.32302666, -0.47245598,  0.14597893]], dtype=float32),\n",
++       "  array([[ 4.0501423 , -5.329913  ,  0.65704536],\n",
++       "         [ 3.964203  , -5.286607  ,  0.79323196],\n",
++       "         [ 4.027788  , -5.245596  ,  0.8157959 ],\n",
++       "         ...,\n",
++       "         [-1.1813011 ,  1.4678383 ,  1.743207  ],\n",
++       "         [-1.194294  ,  1.3622255 ,  1.830615  ],\n",
++       "         [-1.1631794 ,  1.5995312 ,  1.609067  ]], dtype=float32),\n",
++       "  array([[ 3.874586  ,  4.8014674 , -3.3572454 ],\n",
++       "         [ 3.9310493 ,  4.7598834 , -3.2577696 ],\n",
++       "         [ 3.9814014 ,  4.8689966 , -3.288659  ],\n",
++       "         ...,\n",
++       "         [-2.5463314 ,  2.9380846 ,  0.26995277],\n",
++       "         [-2.4325123 ,  2.8771954 ,  0.29428864],\n",
++       "         [-2.707529  ,  3.0116577 ,  0.23509789]], dtype=float32),\n",
++       "  array([[ 0.90478516, -2.6737452 ,  3.8823833 ],\n",
++       "         [ 0.84724426, -2.676817  ,  3.9281788 ],\n",
++       "         [ 0.9144783 , -2.6580477 ,  3.9693928 ],\n",
++       "         ...,\n",
++       "         [-1.4260292 ,  2.5770407 ,  2.681778  ],\n",
++       "         [-1.452486  ,  2.5210562 ,  2.685584  ],\n",
++       "         [-1.4047337 ,  2.6287127 ,  2.6738758 ]], dtype=float32),\n",
++       "  array([[ 4.3506165 ,  5.069156  , -3.2208576 ],\n",
++       "         [ 4.3938465 ,  4.977127  , -3.1173468 ],\n",
++       "         [ 4.4476357 ,  5.0866857 , -3.147911  ],\n",
++       "         ...,\n",
++       "         [-2.4734287 ,  2.9307451 , -1.0061154 ],\n",
++       "         [-2.348055  ,  2.8162603 , -0.96149635],\n",
++       "         [-2.6559467 ,  3.0742416 , -1.0638738 ]], dtype=float32),\n",
++       "  array([[ 0.9303951 , -1.5785971 ,  0.30199337],\n",
++       "         [ 0.96357536, -1.5266209 ,  0.39705372],\n",
++       "         [ 1.073534  , -1.4425497 ,  0.40211105],\n",
++       "         ...,\n",
++       "         [-0.18527603,  0.7047634 ,  0.76636887],\n",
++       "         [-0.1697464 ,  0.68024635,  0.7834215 ],\n",
++       "         [-0.22473907,  0.7338619 ,  0.7295866 ]], dtype=float32),\n",
++       "  array([[-0.5465946 ,  3.444232  , -1.5062723 ],\n",
++       "         [-0.49995995,  3.4500132 , -1.4455376 ],\n",
++       "         [-0.468853  ,  3.543375  , -1.4303951 ],\n",
++       "         ...,\n",
++       "         [-2.8706932 ,  4.5326166 ,  1.0221252 ],\n",
++       "         [-2.7809582 ,  4.484956  ,  1.0306711 ],\n",
++       "         [-2.9995823 ,  4.5728493 ,  1.0057087 ]], dtype=float32),\n",
++       "  array([[ 3.785242  ,  4.545313  , -3.4897795 ],\n",
++       "         [ 3.8608208 ,  4.4271517 , -3.4023256 ],\n",
++       "         [ 3.9539948 ,  4.5117636 , -3.4134827 ],\n",
++       "         ...,\n",
++       "         [-0.6452465 ,  0.08910179,  1.1275244 ],\n",
++       "         [-0.56988335,  0.01869583,  1.1580124 ],\n",
++       "         [-0.75922775,  0.18240929,  1.0757484 ]], dtype=float32),\n",
++       "  array([[ 0.47299004,  4.1924334 , -2.0436487 ],\n",
++       "         [ 0.5196934 ,  4.1426687 , -1.9160976 ],\n",
++       "         [ 0.5354023 ,  4.227333  , -1.902257  ],\n",
++       "         ...,\n",
++       "         [-3.229103  ,  2.6514797 , -0.7137809 ],\n",
++       "         [-3.0753212 ,  2.636549  , -0.6791172 ],\n",
++       "         [-3.4280968 ,  2.672593  , -0.75004244]], dtype=float32),\n",
++       "  array([[-0.74121094, -0.7691221 , -3.9248276 ],\n",
++       "         [-0.48837662, -0.8223152 , -3.8255692 ],\n",
++       "         [-0.3672657 , -0.8084736 , -3.7831106 ],\n",
++       "         ...,\n",
++       "         [-0.0666275 ,  2.126276  ,  0.6634922 ],\n",
++       "         [-0.03224373,  2.108244  ,  0.67850494],\n",
++       "         [-0.12146759,  2.1314735 ,  0.6317358 ]], dtype=float32),\n",
++       "  array([[ 1.5243778,  3.9858017, -2.2691507],\n",
++       "         [ 1.5883102,  3.965087 , -2.1871595],\n",
++       "         [ 1.625637 ,  4.0506363, -2.1699562],\n",
++       "         ...,\n",
++       "         [-2.3117104,  3.107463 ,  2.426279 ],\n",
++       "         [-2.2093792,  3.0574331,  2.435999 ],\n",
++       "         [-2.451271 ,  3.1555672,  2.3917503]], dtype=float32),\n",
++       "  array([[ 2.0869102 ,  3.192028  , -0.03699207],\n",
++       "         [ 2.0738983 ,  3.1587353 ,  0.02372742],\n",
++       "         [ 2.1002083 ,  3.1931515 ,  0.06949997],\n",
++       "         ...,\n",
++       "         [-4.96821   ,  4.1105347 ,  0.63078403],\n",
++       "         [-4.865282  ,  4.028022  ,  0.6914091 ],\n",
++       "         [-5.0962257 ,  4.2061853 ,  0.5257597 ]], dtype=float32),\n",
++       "  array([[ 1.4792595 , -0.79917717,  2.283226  ],\n",
++       "         [ 1.4378929 , -0.81075096,  2.3702288 ],\n",
++       "         [ 1.5134163 , -0.7353182 ,  2.3829842 ],\n",
++       "         ...,\n",
++       "         [-1.6596794 ,  0.03955841,  3.2923946 ],\n",
++       "         [-1.6631031 ,  0.01305389,  3.284359  ],\n",
++       "         [-1.6628513 ,  0.06615067,  3.2918015 ]], dtype=float32),\n",
++       "  array([[ 1.2685814,  4.6811357, -3.807744 ],\n",
++       "         [ 1.2894001,  4.5928383, -3.7555704],\n",
++       "         [ 1.2868366,  4.6818924, -3.7822886],\n",
++       "         ...,\n",
++       "         [-4.2027206,  1.4236164,  1.1435308],\n",
++       "         [-4.0910645,  1.3513422,  1.1383104],\n",
++       "         [-4.349428 ,  1.5220184,  1.1388721]], dtype=float32),\n",
++       "  array([[ 3.6555824 , -1.559576  , -3.253706  ],\n",
++       "         [ 3.7376175 , -1.49016   , -3.1027222 ],\n",
++       "         [ 3.8490677 , -1.4374771 , -3.0902615 ],\n",
++       "         ...,\n",
++       "         [ 0.12387848,  3.4325085 ,  2.1588268 ],\n",
++       "         [ 0.10046387,  3.418953  ,  2.2121334 ],\n",
++       "         [ 0.16846657,  3.4169283 ,  2.0590363 ]], dtype=float32),\n",
++       "  array([[-0.4961052 ,  0.7083149 ,  0.33674908],\n",
++       "         [-0.465765  ,  0.7327795 ,  0.39175797],\n",
++       "         [-0.44654083,  0.7463951 ,  0.45404053],\n",
++       "         ...,\n",
++       "         [-1.3846684 ,  1.8292217 ,  2.1380787 ],\n",
++       "         [-1.3512096 ,  1.7844019 ,  2.21389   ],\n",
++       "         [-1.4242706 ,  1.8731585 ,  2.0259    ]], dtype=float32),\n",
++       "  array([[-0.9043312 , -0.69029236, -1.3138838 ],\n",
++       "         [-0.8533344 , -0.7750721 , -1.319623  ],\n",
++       "         [-0.81077385, -0.77451515, -1.3277922 ],\n",
++       "         ...,\n",
++       "         [-3.1165752 ,  0.23749352,  2.988536  ],\n",
++       "         [-3.105585  ,  0.1669159 ,  2.9689646 ],\n",
++       "         [-3.1303406 ,  0.3274994 ,  2.9932556 ]], dtype=float32),\n",
++       "  array([[ 1.8332272 ,  4.243354  , -3.7392159 ],\n",
++       "         [ 1.8839111 ,  4.1529903 , -3.6785727 ],\n",
++       "         [ 1.8958282 ,  4.240608  , -3.7103262 ],\n",
++       "         ...,\n",
++       "         [-3.2828598 ,  1.3405113 ,  0.1306057 ],\n",
++       "         [-3.1673412 ,  1.2600231 ,  0.14142704],\n",
++       "         [-3.4402199 ,  1.446662  ,  0.11222649]], dtype=float32),\n",
++       "  array([[ 1.9075909 ,  4.406337  , -4.08543   ],\n",
++       "         [ 1.9334145 ,  4.3257227 , -4.0231876 ],\n",
++       "         [ 1.9428158 ,  4.415696  , -4.067627  ],\n",
++       "         ...,\n",
++       "         [-3.1553898 ,  0.7700062 ,  0.12879181],\n",
++       "         [-3.0263042 ,  0.6992378 ,  0.12948036],\n",
++       "         [-3.332283  ,  0.8660717 ,  0.12352753]], dtype=float32),\n",
++       "  array([[ 4.0312843,  4.6186066, -4.0910835],\n",
++       "         [ 4.035658 ,  4.535737 , -4.0448904],\n",
++       "         [ 4.0634117,  4.654649 , -4.111187 ],\n",
++       "         ...,\n",
++       "         [-3.6595707,  2.5102396, -1.8003211],\n",
++       "         [-3.5274944,  2.4085426, -1.7612524],\n",
++       "         [-3.8364086,  2.6411648, -1.863769 ]], dtype=float32),\n",
++       "  array([[ 2.03619   ,  4.3069544 , -3.5230665 ],\n",
++       "         [ 2.073532  ,  4.223832  , -3.464035  ],\n",
++       "         [ 2.0897217 ,  4.317135  , -3.496336  ],\n",
++       "         ...,\n",
++       "         [-3.3464794 ,  1.4627867 , -0.55647516],\n",
++       "         [-3.2251873 ,  1.3946648 , -0.5456095 ],\n",
++       "         [-3.510767  ,  1.5486975 , -0.5756302 ]], dtype=float32),\n",
++       "  array([[ 3.5030231,  3.8165903, -2.6617222],\n",
++       "         [ 3.5025387,  3.7424717, -2.5788794],\n",
++       "         [ 3.53265  ,  3.8261147, -2.58603  ],\n",
++       "         ...,\n",
++       "         [-4.423723 ,  2.7579432,  1.0572386],\n",
++       "         [-4.3210697,  2.6784658,  1.0850515],\n",
++       "         [-4.5690136,  2.847909 ,  1.0189924]], dtype=float32),\n",
++       "  array([[ 5.0275116,  4.0648794, -1.0147333],\n",
++       "         [ 5.032156 ,  4.0172577, -0.8888035],\n",
++       "         [ 5.1385574,  4.0833073, -0.8134651],\n",
++       "         ...,\n",
++       "         [ 0.9751129,  2.9726715,  9.133438 ],\n",
++       "         [ 1.0064793,  2.9144468,  9.280092 ],\n",
++       "         [ 0.9261608,  2.998705 ,  8.863409 ]], dtype=float32),\n",
++       "  array([[-1.0781631 ,  1.0974398 , -2.493888  ],\n",
++       "         [-0.97844124,  0.93856144, -2.6515808 ],\n",
++       "         [-0.89109993,  0.9826317 , -2.6544485 ],\n",
++       "         ...,\n",
++       "         [-2.5582542 ,  1.722621  , -1.8975186 ],\n",
++       "         [-2.4674435 ,  1.6902714 , -1.8504634 ],\n",
++       "         [-2.679163  ,  1.7236204 , -1.9707494 ]], dtype=float32),\n",
++       "  array([[ 2.040226 ,  4.4922247, -4.4355364],\n",
++       "         [ 2.0855122,  4.4380198, -4.350013 ],\n",
++       "         [ 2.0924377,  4.533947 , -4.4024916],\n",
++       "         ...,\n",
++       "         [-3.745655 ,  1.3817492, -0.5976944],\n",
++       "         [-3.6404762,  1.3507853, -0.5892453],\n",
++       "         [-3.8861732,  1.4244938, -0.6091337]], dtype=float32),\n",
++       "  array([[ 2.894474  , -5.5801477 , -4.345169  ],\n",
++       "         [ 2.8198452 , -5.536788  , -4.2523623 ],\n",
++       "         [ 2.887577  , -5.5018215 , -4.271158  ],\n",
++       "         ...,\n",
++       "         [ 1.1446962 ,  0.9632759 ,  1.3991632 ],\n",
++       "         [ 1.1400433 ,  0.90357304,  1.3856697 ],\n",
++       "         [ 1.123766  ,  1.030591  ,  1.4038134 ]], dtype=float32),\n",
++       "  array([[ 1.8489475 ,  3.178544  , -4.0548544 ],\n",
++       "         [ 1.775507  ,  3.019352  , -4.0446444 ],\n",
++       "         [ 1.7956791 ,  2.9871378 , -4.1573553 ],\n",
++       "         ...,\n",
++       "         [-2.741003  , -0.6818428 , -1.9221411 ],\n",
++       "         [-2.6641407 , -1.0913734 , -1.7736454 ],\n",
++       "         [-2.7872105 , -0.03171921, -2.1646724 ]], dtype=float32),\n",
++       "  array([[ 2.6727276,  4.378786 , -3.8119583],\n",
++       "         [ 2.7291431,  4.3124037, -3.7408257],\n",
++       "         [ 2.7429466,  4.3017454, -3.8457823],\n",
++       "         ...,\n",
++       "         [-4.5660763,  2.1572409, -0.8005018],\n",
++       "         [-4.4898205,  2.1209927, -0.7596216],\n",
++       "         [-4.650263 ,  2.1853533, -0.8651943]], dtype=float32),\n",
++       "  array([[ 3.091156  ,  4.5455647 , -5.0472546 ],\n",
++       "         [ 3.1159096 ,  4.4802427 , -4.983593  ],\n",
++       "         [ 3.1389542 ,  4.5709534 , -5.0530767 ],\n",
++       "         ...,\n",
++       "         [-3.7318325 ,  1.5641575 , -0.3194828 ],\n",
++       "         [-3.6268444 ,  1.4776726 , -0.31384516],\n",
++       "         [-3.8739605 ,  1.6823893 , -0.33627462]], dtype=float32),\n",
++       "  array([[-0.8758583 ,  2.9705153 , -1.4564886 ],\n",
++       "         [-0.80472946,  3.0127354 , -1.4065228 ],\n",
++       "         [-0.75245476,  3.1284819 , -1.4229603 ],\n",
++       "         ...,\n",
++       "         [-2.6201477 ,  3.2677765 , -0.07556915],\n",
++       "         [-2.5348568 ,  3.2320662 , -0.06107521],\n",
++       "         [-2.7435112 ,  3.2960253 , -0.09658527]], dtype=float32),\n",
++       "  array([[ 0.25167847,  4.464677  , -3.7764072 ],\n",
++       "         [ 0.3894577 ,  4.4806213 , -3.694498  ],\n",
++       "         [ 0.4347515 ,  4.5821724 , -3.7409334 ],\n",
++       "         ...,\n",
++       "         [-2.4705963 ,  2.95584   , -0.7390857 ],\n",
++       "         [-2.3638115 ,  2.82378   , -0.73057413],\n",
++       "         [-2.6201572 ,  3.1184673 , -0.7515764 ]], dtype=float32),\n",
++       "  array([[ 3.1049347 ,  4.0554056 , -4.135293  ],\n",
++       "         [ 3.140379  ,  3.977643  , -4.073414  ],\n",
++       "         [ 3.1577988 ,  4.0820293 , -4.119318  ],\n",
++       "         ...,\n",
++       "         [-3.2282581 ,  1.2461948 , -0.37264252],\n",
++       "         [-3.1080608 ,  1.1636238 , -0.35219336],\n",
++       "         [-3.393032  ,  1.3563175 , -0.40443516]], dtype=float32),\n",
++       "  array([[ 1.0388317 , -0.43363667,  0.297513  ],\n",
++       "         [ 1.1946659 , -0.43450165,  0.46712494],\n",
++       "         [ 1.2599754 , -0.36774445,  0.4554386 ],\n",
++       "         ...,\n",
++       "         [ 0.7110596 ,  1.2011852 ,  1.1790276 ],\n",
++       "         [ 0.7209568 ,  1.147994  ,  1.2261868 ],\n",
++       "         [ 0.6822052 ,  1.2561579 ,  1.1001053 ]], dtype=float32)],\n",
++       " 'len_inds': [2065,\n",
++       "  2181,\n",
++       "  2261,\n",
++       "  2164,\n",
++       "  2213,\n",
++       "  2178,\n",
++       "  2251,\n",
++       "  2232,\n",
++       "  2152,\n",
++       "  2231,\n",
++       "  2127,\n",
++       "  2023,\n",
++       "  2069,\n",
++       "  1936,\n",
++       "  2149,\n",
++       "  2123,\n",
++       "  2258,\n",
++       "  2142,\n",
++       "  2157,\n",
++       "  2195,\n",
++       "  2113,\n",
++       "  2179,\n",
++       "  2166,\n",
++       "  2107,\n",
++       "  2291,\n",
++       "  2257,\n",
++       "  2171,\n",
++       "  2262,\n",
++       "  2208,\n",
++       "  2201,\n",
++       "  2226,\n",
++       "  2371,\n",
++       "  2134,\n",
++       "  2049,\n",
++       "  2229,\n",
++       "  2279,\n",
++       "  1921,\n",
++       "  2060,\n",
++       "  2223,\n",
++       "  2099,\n",
++       "  1976,\n",
++       "  2143,\n",
++       "  2151]}"
+       ]
+      },
+-     "execution_count": 45,
++     "execution_count": 12,
+      "metadata": {},
+      "output_type": "execute_result"
+     }
+    ],
+    "source": [
+-    "len(indices)/5995 # OCT Coverage"
++    "results_dict_exvivo"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 129,
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+-   "source": [
+-    "# SYNTHETIC dataset RECOMPUTE METRICS ERROR! COde already fixed\n",
+-    "#Non-registered cd score: 2.6510443661802556\n",
+-    "#Registered cd score: 1.525927096151323\n",
+-    "#Mean displacement error:  1.2454229513430253\n",
+-    "#Landmark loss: 0.31956249197747577\n",
+-    "#Wall time: 2.8274417352932755 s"
+-   ]
++   "source": []
+   }
+  ],
+  "metadata": {
+diff --git a/test_pipeline.ipynb b/test_pipeline.ipynb
+index e5a03c2..9761de6 100644
+--- a/test_pipeline.ipynb
++++ b/test_pipeline.ipynb
+@@ -37,7 +37,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 27,
++   "execution_count": 2,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -58,13 +58,13 @@
+     "        pass\n",
+     "    args = config()\n",
+     "    args.data_root = 'mesh_dataset/ear_dataset/'\n",
+-    "    args.dataset_split = 'val'\n",
++    "    args.dataset_split = 'test'\n",
+     "    args.oct_data_root = 'mesh_dataset/oct_outputs/*.npy'\n",
+     "    args.checkpoint = 'trainResults/eardataset_nonrigid_randrot_pretrained_eardrum_large_ds/checkpoints/best_recall.pth'\n",
+     "    #args.checkpoint = 'trainResults/trained_03_13_100k_randomsplit_0/checkpoints/best_recall.pth'\n",
+     "    args.vis = False\n",
+     "    args.no_cuda = False\n",
+-    "    args.use_real = True\n",
++    "    args.use_real = False\n",
+     "\n",
+     "    args.ngenet_config_path = 'config/eardataset_ngenet.yaml'\n",
+     "    args.ndp_config_path = 'config/NDP.yaml'\n",
+@@ -86,7 +86,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 28,
++   "execution_count": 3,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -96,7 +96,7 @@
+     "config.architecture = architectures[config.dataset]\n",
+     "config.num_workers = 0\n",
+     "\n",
+-    "all_oct_outputs = glob(args.oct_data_root)\n",
++    "diome_path = 'mesh_dataset/DIOME_FanShapeCorr/'\n",
+     "\n",
+     "test_dataset = EarDataset(\n",
+     "    root=args.data_root,\n",
+@@ -107,7 +107,7 @@
+     ")\n",
+     "\n",
+     "test_dataset_real = EarDatasetTest(\n",
+-    "    test_paths=all_oct_outputs,\n",
++    "    test_path=diome_path,\n",
+     "    root=args.data_root,\n",
+     "    noisy_intra=config.noisy_intra,\n",
+     "    split='test',\n",
+@@ -134,7 +134,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 29,
++   "execution_count": 4,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -177,7 +177,7 @@
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 30,
++   "execution_count": 5,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+@@ -199,9 +199,13 @@
+     "inlier_ratios, mutual_inlier_ratios = [], []\n",
+     "mutual_feature_match_recalls, feature_match_recalls = [], []\n",
+     "transformations = []\n",
+-    "nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l = [], [], [], []\n",
++    "nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l, ngenet_cd_l = [], [], [], [], []\n",
+     "overlap_scores, wall_time_models = [], []\n",
+     "displ_ngenet, displ = [], []\n",
++    "mdes, visible_point_ratio = [], []\n",
++    "uncertainty_scores = []\n",
++    "side, status = [], []\n",
++    "len_coors_l = []\n",
+     "\n",
+     "dist_thresh_maps = {\n",
+     "    '10000': config.first_subsampling_dl,\n",
+@@ -211,20 +215,21 @@
+     "    '500': config.first_subsampling_dl * 1.5,\n",
+     "    '250': config.first_subsampling_dl * 2,\n",
+     "}\n",
++    "\n",
+     "model_nonrigid = Registration(p_config)\n",
+     "timer = Timers()"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 31,
++   "execution_count": 6,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stderr",
+      "output_type": "stream",
+      "text": [
+-      "100%|██████████| 10/10 [01:33<00:00,  9.39s/it]\n"
++      "100%|██████████| 1117/1117 [2:30:21<00:00,  8.08s/it] \n"
+      ]
+     }
+    ],
+@@ -239,7 +244,6 @@
+     "            else:\n",
+     "                inputs[k] = inputs[k].cuda()\n",
+     "    with torch.no_grad():\n",
+-    "        \n",
+     "        batched_feats_h, batched_feats_m, batched_feats_l = model_rigid(inputs)\n",
+     "        stack_points = inputs['points']\n",
+     "        stack_points_raw = inputs['batched_points_raw']\n",
+@@ -291,13 +295,15 @@
+     "        transformations.append(pred_T)\n",
+     "    \n",
+     "    corrs_pred = np.unique(np.asarray(result.correspondence_set).T[0])\n",
+-    "    \n",
++    "    len_coors_l.append(len(corrs_pred))\n",
+     "    raw_coords_src = torch.tensor(denorm(pcd2npy(estimate), metadata)).to(coords_src.device)\n",
+     "    raw_coords_tgt = torch.tensor(denorm(pcd2npy(target), metadata)).to(coords_tgt.device)\n",
+     "\n",
+     "    coords_src_raw = coords_src_raw.cpu().detach().numpy()\n",
+     "    coords_tgt_raw = coords_tgt_raw.cpu().detach().numpy()\n",
+     "    coords_tgt_full = coords_tgt_full.cpu().detach().numpy()\n",
++    "    coords_transformed_src = raw_coords_src.cpu().detach().numpy()\n",
++    "\n",
+     "    inds = inputs['inds'][0].cpu().detach().numpy()\n",
+     "    faces = inputs['faces'][0].cpu().detach().numpy()\n",
+     "    \n",
+@@ -327,18 +333,35 @@
+     "            trunc=1e+9\n",
+     "        ).item()\n",
+     "\n",
++    "        ngenet_cd = compute_truncated_chamfer_distance(\n",
++    "            torch.tensor(coords_transformed_src).unsqueeze(0).float(), \n",
++    "            torch.tensor(coords_tgt_full).unsqueeze(0), \n",
++    "            trunc=1e+9\n",
++    "        ).item()\n",
++    "\n",
++    "        # MEAN DISPLACEMENT ERROR\n",
+     "        mde = mean_displacement_error(\n",
+     "            displacement_pred, \n",
+     "            displacement_gt\n",
+     "        )\n",
++    "        mdes.append(mde)\n",
++    "\n",
++    "        # UNCERTAINTY PREDICTION\n",
++    "        # based on source target distance\n",
++    "        dist = torch.norm(torch.tensor(warped_pcd).unsqueeze(1) - torch.tensor(coords_tgt_raw).unsqueeze(0), dim=2)\n",
++    "        minimumDistances, _ = dist.min(dim=1)\n",
++    "        minimumDistances = torch.tanh(minimumDistances)\n",
++    "        \n",
++    "        visible_point_ratio.append(coords_tgt.shape[0]/5995)\n",
+     "\n",
+     "        l_inds = [v for u, v in landmarks.items()]\n",
+     "        pred_landmarks = [warped_pcd[i] for i in l_inds]\n",
+     "        pre_landmarks = [coords_tgt_full[i] for i in l_inds]\n",
+-    "\n",
++    "        \n",
+     "        lndmk = landmark_loss(pre_landmarks, pred_landmarks)\n",
+     "        ind = metadata[args.dataset_split][pair_ind].split(\"/\")[1]\n",
+     "        landmark_loss_l.append(lndmk)\n",
++    "        ngenet_cd_l.append(ngenet_cd)\n",
+     "    else:\n",
+     "        \n",
+     "        registered_cd = compute_truncated_chamfer_distance(\n",
+@@ -353,15 +376,21 @@
+     "            trunc=1e+9\n",
+     "        ).item()\n",
+     "\n",
+-    "        ind = all_oct_outputs[pair_ind].split('\\\\')[-1]\n",
+-    "        with open(f'mesh_dataset/oct_outputs/{ind.split(\".\")[0]}_lndmrks.pkl', 'rb') as f:\n",
+-    "            landmarks_intra = load(f)\n",
++    "        intra_data = test_dataset_real.__getitem__(pair_ind)\n",
++    "        intra_metadata = intra_data['metadata']\n",
++    "        side.append(intra_metadata['patient_info']['side'])\n",
++    "        status.append(intra_metadata['patient_info']['status'])\n",
+     "        \n",
++    "        landmarks_intra = intra_data['landmarks']\n",
++    "\n",
++    "        ind = pair_ind\n",
+     "        if landmarks_intra != {}:\n",
+     "            pred_landmarks = [warped_pcd[landmarks[k]] for k, v in landmarks_intra.items()]\n",
+     "            intra_landmarks = [v for k, v in landmarks_intra.items()]\n",
+     "            lndmk = landmark_loss(pred_landmarks, intra_landmarks)\n",
+     "            landmark_loss_l.append(lndmk)\n",
++    "        else:\n",
++    "            landmark_loss_l.append(-1)\n",
+     "        mde = -1\n",
+     "    \n",
+     "    overlap = len(target_npy)/len(source_npy)\n",
+@@ -373,25 +402,64 @@
+     "    \n",
+     "    output_mesh = trm.Trimesh(warped_pcd, faces)\n",
+     "    _=output_mesh.export(f'test_output_folder/predictions/prediction_{ind}.stl')\n",
+-    "    np.save(f'test_output_folder/pred_corrs/pred_corrs_{ind}.npy',np.asarray(result.correspondence_set))\n",
+-    "    np.save(f'test_output_folder/ndp_hist/ndp_hist_{ind}.npy',hist)"
++    "    np.save(f'test_output_folder/pred_corrs/pred_corrs_{ind}.npy', np.asarray(result.correspondence_set))\n",
++    "    np.save(f'test_output_folder/ndp_hist/ndp_hist_{ind}.npy', hist)\n",
++    "    np.save(f'test_output_folder/other_scores/overlap_saliency_{ind}.npy', feats_src_h[:, -2].cpu().numpy())\n",
++    "\n",
++    "    if pair_ind == -1:\n",
++    "        break"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 32,
++   "execution_count": 8,
++   "metadata": {},
++   "outputs": [
++    {
++     "ename": "SyntaxError",
++     "evalue": "keyword argument repeated (2822320456.py, line 10)",
++     "output_type": "error",
++     "traceback": [
++      "\u001b[1;36m  File \u001b[1;32m\"C:\\Users\\chenp\\AppData\\Local\\Temp\\ipykernel_35772\\2822320456.py\"\u001b[1;36m, line \u001b[1;32m10\u001b[0m\n\u001b[1;33m    overlap_scores=overlap_scores,\u001b[0m\n\u001b[1;37m    ^\u001b[0m\n\u001b[1;31mSyntaxError\u001b[0m\u001b[1;31m:\u001b[0m keyword argument repeated\n"
++     ]
++    }
++   ],
++   "source": [
++    "import pandas as pd\n",
++    "\n",
++    "results_dict_exvivo = dict(\n",
++    "    nonregistered_cd_l=nonregistered_cd_l,\n",
++    "    registered_cd_l=registered_cd_l,\n",
++    "    mean_displacement_error_l=mean_displacement_error_l,\n",
++    "    overlap_scores=overlap_scores,\n",
++    "    landmark_loss_l=[i if i != -1 else float('nan') for i in landmark_loss_l],\n",
++    "    wall_time_models=wall_time_models,\n",
++    "    overlap_scores=overlap_scores,\n",
++    "    displ_ngenet=displ_ngenet,\n",
++    "    displ=displ,\n",
++    "    len_coors_l=len_coors_l,\n",
++    ")\n",
++    "\n",
++    "\n",
++    "df = pd.DataFrame.from_dict(results_dict_exvivo)\n",
++    "df.to_csv('finalResults/results_exvivo_ngenet.csv')"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 7,
+    "metadata": {},
+    "outputs": [
+     {
+      "name": "stdout",
+      "output_type": "stream",
+      "text": [
+-      "Non-registered cd score: 618.4198693275451\n",
+-      "Registered cd score: 1.963654351234436\n",
+-      "Overlap of pointclouds: 1.0\n",
+-      "Mean displacement error:  -1\n",
+-      "Landmark loss: 0.7635437785346877\n",
+-      "Wall time: 8.295645928382873 s\n"
++      "Non-registered cd score: 1.459614505165906\n",
++      "Registered cd score: 0.5751088607052446\n",
++      "Overlap of pointclouds: 0.356882301948132\n",
++      "Mean displacement error:  0.77491\n",
++      "Landmark loss: 0.4189711102293939\n",
++      "Wall time: 6.609897678626256 s\n"
+      ]
+     }
+    ],
+@@ -400,17 +468,69 @@
+     "print('Registered cd score:', mean(registered_cd_l))\n",
+     "print('Overlap of pointclouds:', mean(overlap_scores))\n",
+     "print('Mean displacement error: ', mean(mean_displacement_error_l))\n",
+-    "print('Landmark loss:', mean(landmark_loss_l))\n",
++    "print('Landmark loss:', mean([i for i in landmark_loss_l if i != -1]))\n",
+     "print('Wall time:', mean(wall_time_models), 's')"
+    ]
+   },
+   {
+    "cell_type": "code",
+-   "execution_count": 26,
++   "execution_count": 9,
++   "metadata": {},
++   "outputs": [
++    {
++     "name": "stdout",
++     "output_type": "stream",
++     "text": [
++      "[Open3D WARNING] invalid color in PaintUniformColor, clipping to [0, 1]\n"
++     ]
++    }
++   ],
++   "source": [
++    "colors = np.zeros((5995, 3))\n",
++    "colors[:, 1] = feats_src_h[:, -2].cpu().numpy()\n",
++    "\n",
++    "warped_pcds = npy2pcd(warped_pcd)\n",
++    "warped_pcds.colors = o3d.utility.Vector3dVector(colors)\n",
++    "target = npy2pcd(raw_coords_tgt.cpu().numpy())\n",
++    "target.paint_uniform_color([255, 0, 0])\n",
++    "vis_plys([warped_pcds, target], need_color=False)"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": 1,
++   "metadata": {},
++   "outputs": [
++    {
++     "ename": "NameError",
++     "evalue": "name 'registered_cd_l' is not defined",
++     "output_type": "error",
++     "traceback": [
++      "\u001b[1;31m---------------------------------------------------------------------------\u001b[0m",
++      "\u001b[1;31mNameError\u001b[0m                                 Traceback (most recent call last)",
++      "\u001b[1;32m~\\AppData\\Local\\Temp\\ipykernel_33624\\2885513226.py\u001b[0m in \u001b[0;36m<module>\u001b[1;34m\u001b[0m\n\u001b[0;32m      1\u001b[0m \u001b[0msample_index\u001b[0m \u001b[1;33m=\u001b[0m \u001b[1;36m5\u001b[0m\u001b[1;33m\u001b[0m\u001b[1;33m\u001b[0m\u001b[0m\n\u001b[1;32m----> 2\u001b[1;33m \u001b[0mprint\u001b[0m\u001b[1;33m(\u001b[0m\u001b[1;34mf'Chamfer distance: {registered_cd_l[sample_index]}'\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m\u001b[0m\u001b[1;33m\u001b[0m\u001b[0m\n\u001b[0m\u001b[0;32m      3\u001b[0m \u001b[0mvis_plys\u001b[0m\u001b[1;33m(\u001b[0m\u001b[1;33m[\u001b[0m\u001b[0mnpy2pcd\u001b[0m\u001b[1;33m(\u001b[0m\u001b[0mwarped_pcds\u001b[0m\u001b[1;33m[\u001b[0m\u001b[0msample_index\u001b[0m\u001b[1;33m]\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m,\u001b[0m \u001b[0mnpy2pcd\u001b[0m\u001b[1;33m(\u001b[0m\u001b[0mtgt_raw\u001b[0m\u001b[1;33m[\u001b[0m\u001b[0msample_index\u001b[0m\u001b[1;33m]\u001b[0m\u001b[1;33m.\u001b[0m\u001b[0mcpu\u001b[0m\u001b[1;33m(\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m.\u001b[0m\u001b[0mnumpy\u001b[0m\u001b[1;33m(\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m]\u001b[0m\u001b[1;33m)\u001b[0m\u001b[1;33m\u001b[0m\u001b[1;33m\u001b[0m\u001b[0m\n",
++      "\u001b[1;31mNameError\u001b[0m: name 'registered_cd_l' is not defined"
++     ]
++    }
++   ],
++   "source": [
++    "sample_index = 5\n",
++    "print(f'Chamfer distance: {registered_cd_l[sample_index]}')\n",
++    "vis_plys([npy2pcd(warped_pcds[sample_index]), npy2pcd(tgt_raw[sample_index].cpu().numpy())])"
++   ]
++  },
++  {
++   "cell_type": "code",
++   "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+    "source": [
+-    "vis_plys([estimate, target])"
++    "\"\"\" Non-registered cd score: 1.459614505165906\n",
++    "Registered cd score: 0.5679943127659356\n",
++    "Overlap of pointclouds: 0.356882301948132\n",
++    "Mean displacement error:  0.7746529\n",
++    "Landmark loss: 0.4213273387613913\n",
++    "Wall time: 39.942818044655645 s \"\"\""
+    ]
+   },
+   {
+@@ -419,12 +539,21 @@
+    "metadata": {},
+    "outputs": [],
+    "source": [
+-    "\"\"\" Non-registered cd score: 618.4198693275451\n",
+-    "Registered cd score: 1.8703672170639039\n",
+-    "Overlap of pointclouds: 1.0\n",
++    "\"\"\" DIOME no correction\n",
++    "Non-registered cd score: 4.754870608795521\n",
++    "Registered cd score: 1.6517222634581632\n",
++    "Overlap of pointclouds: 0.5124270225187656\n",
+     "Mean displacement error:  -1\n",
+-    "Landmark loss: 0.8059637293833294\n",
+-    "Wall time: 7.068033504486084 s \"\"\""
++    "Landmark loss: 2.2849106172687916\n",
++    "Wall time: 6.274375043132088 s \n",
++    "\n",
++    "DIOME with correction\n",
++    "NNon-registered cd score: 4.179325480793798\n",
++    "Registered cd score: 2.3342912876328756\n",
++    "Overlap of pointclouds: 0.3749791492910759\n",
++    "Mean displacement error:  -1\n",
++    "Landmark loss: 1.817811517964032\n",
++    "Wall time: 8.124897069709245 s\"\"\""
+    ]
+   },
+   {
+@@ -432,7 +561,25 @@
+    "execution_count": null,
+    "metadata": {},
+    "outputs": [],
+-   "source": []
++   "source": [
++    "\"\"\" import pandas as pd\n",
++    "\n",
++    "results_dict_invivo = dict(\n",
++    "    nonregistered_cd_l=nonregistered_cd_l,\n",
++    "    registered_cd_l=registered_cd_l,\n",
++    "    overlap_scores=overlap_scores,\n",
++    "    landmark_loss_l=[i if i != -1 else float('nan') for i in landmark_loss_l],\n",
++    "    wall_time_models=wall_time_models,\n",
++    "    displ_ngenet=displ_ngenet,\n",
++    "    displ=displ,\n",
++    "    side=side,\n",
++    "    status=status\n",
++    ")\n",
++    "\n",
++    "\n",
++    "df = pd.DataFrame.from_dict(results_dict_invivo)\n",
++    "df.to_csv('finalResults/results_invivo_ngenet.csv') \"\"\""
++   ]
+   }
+  ],
+  "metadata": {
+diff --git a/test_script.py b/test_script.py
+index c35992d..75f3e88 100644
+--- a/test_script.py
++++ b/test_script.py
+@@ -40,22 +40,35 @@ def checkIPython():
+     except:
+         return False
+ 
++if checkIPython(): # Checks if running in IPython notebook. If running by CLI, argparse is used
++    class config:
++        pass
++    args = config()
++    args.data_root = 'mesh_dataset/ear_dataset/'
++    args.dataset_split = 'test'
++    args.oct_data_root = 'mesh_dataset/oct_outputs/*.npy'
++    args.checkpoint = 'trainResults/eardataset_nonrigid_randrot_pretrained_eardrum_large_ds/checkpoints/best_recall.pth'
++    #args.checkpoint = 'trainResults/trained_03_13_100k_randomsplit_0/checkpoints/best_recall.pth'
++    args.vis = False
++    args.no_cuda = False
++    args.use_real = False
++
++    args.ngenet_config_path = 'config/eardataset_ngenet.yaml'
++    args.ndp_config_path = 'config/NDP.yaml'
++else:
++    parser = argparse.ArgumentParser()
+ 
+-class config:
+-    pass
+-args = config()
+-args.data_root = 'mesh_dataset/ear_dataset_test/'
+-args.dataset_split = 'val'
+-args.oct_data_root = 'mesh_dataset/oct_outputs/*.npy'
+-args.checkpoint = 'trainResults/eardataset_nonrigid_randrot_pretrained_eardrum_large_ds/checkpoints/best_recall.pth'
+-#args.checkpoint = 'trainResults/trained_03_13_100k_randomsplit_0/checkpoints/best_recall.pth'
+-args.vis = False
+-args.no_cuda = False
+-args.use_real = True
+-
+-args.ngenet_config_path = 'config/eardataset_ngenet.yaml'
+-args.ndp_config_path = 'config/NDP.yaml'
++    parser.add_argument('--data_root', type=str, default='mesh_dataset/ear_dataset/', help='root of synthetic dataset')
++    parser.add_argument('--dataset_split', type=str, default='val', help='which of the splits should be used as synthetic dataset')
++    parser.add_argument('--oct_data_root', type=str, default='mesh_dataset/oct_outputs/*.npy', help='glob specification of all oct scans to test (convert to .npy first)')
++    parser.add_argument('--checkpoint', type=str, default='trainResults/eardataset_nonrigid_randrot_pretrained_eardrum_large_ds/checkpoints/best_loss.pth', help='path to NgeNet checkpoint')
++    parser.add_argument('--ngenet_config_path', type=str, default='config/eardataset.yaml', help='which configuration file to use for NgeNet')
++    parser.add_argument('--ndp_config_path', type=str, default='config/NDP.yaml', help='which configuration file to use for NDP')
++    parser.add_argument('--use_real', action='store_true', default=False, help='decide wheather to run the test on the oct scans')
++    parser.add_argument('--vis', action='store_true',  default=False, help='visualize output while running in an extra window')
++    parser.add_argument('--no_cuda', action='store_true',  default=False, help='disable cuda (cpu only)')
+ 
++    args = parser.parse_args()
+ 
+ 
+ # %%
+@@ -156,7 +169,7 @@ rmse_threshold = 0.2
+ inlier_ratios, mutual_inlier_ratios = [], []
+ mutual_feature_match_recalls, feature_match_recalls = [], []
+ transformations = []
+-nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l = [], [], [], []
++nonregistered_cd_l, registered_cd_l, mean_displacement_error_l, landmark_loss_l, ngenet_cd_l = [], [], [], [], []
+ overlap_scores, wall_time_models = [], []
+ displ_ngenet, displ = [], []
+ 
+@@ -220,8 +233,6 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+             use_cuda=use_cuda)
+         source_npy, target_npy, source_feats_npy, target_feats_npy = after_vote
+ 
+-        
+-
+         source, target = npy2pcd(source_npy), npy2pcd(target_npy)
+         
+         source_feats, target_feats = npy2feat(source_feats_h), npy2feat(target_feats_h)
+@@ -240,11 +251,11 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+     raw_coords_src = torch.tensor(denorm(pcd2npy(estimate), metadata)).to(coords_src.device)
+     raw_coords_tgt = torch.tensor(denorm(pcd2npy(target), metadata)).to(coords_tgt.device)
+ 
+-    
+-
+     coords_src_raw = coords_src_raw.cpu().detach().numpy()
+     coords_tgt_raw = coords_tgt_raw.cpu().detach().numpy()
+     coords_tgt_full = coords_tgt_full.cpu().detach().numpy()
++    coords_transformed_src = raw_coords_src.cpu().detach().numpy()
++
+     inds = inputs['inds'][0].cpu().detach().numpy()
+     faces = inputs['faces'][0].cpu().detach().numpy()
+     
+@@ -274,6 +285,12 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+             trunc=1e+9
+         ).item()
+ 
++        ngenet_cd = compute_truncated_chamfer_distance(
++            torch.tensor(coords_transformed_src).unsqueeze(0).float(), 
++            torch.tensor(coords_tgt_full).unsqueeze(0), 
++            trunc=1e+9
++        ).item()
++
+         mde = mean_displacement_error(
+             displacement_pred, 
+             displacement_gt
+@@ -286,6 +303,7 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+         lndmk = landmark_loss(pre_landmarks, pred_landmarks)
+         ind = metadata[args.dataset_split][pair_ind].split("/")[1]
+         landmark_loss_l.append(lndmk)
++        ngenet_cd_l.append(ngenet_cd)
+     else:
+         
+         registered_cd = compute_truncated_chamfer_distance(
+@@ -320,8 +338,6 @@ for pair_ind, inputs in enumerate(tqdm(test_dataloader)):
+     
+     output_mesh = trm.Trimesh(warped_pcd, faces)
+     _=output_mesh.export(f'test_output_folder/predictions/prediction_{ind}.stl')
+-    np.save(f'test_output_folder/ngenet_prediction/source_target_feats_{ind}.npy',np.asarray([source_npy, target_npy]))
+-    np.save(f'test_output_folder/ngenet_prediction/raw_coords_src{ind}.npy',np.asarray(raw_coords_src.cpu()))
+     np.save(f'test_output_folder/pred_corrs/pred_corrs_{ind}.npy',np.asarray(result.correspondence_set))
+     np.save(f'test_output_folder/ndp_hist/ndp_hist_{ind}.npy',hist)
+ 
+@@ -338,11 +354,11 @@ vis_plys([estimate, target])
+ 
+ # %%
+ """ Non-registered cd score: 618.4198693275451
+-Registered cd score: 1.8703672170639039
++Registered cd score: 1.993619680404663
+ Overlap of pointclouds: 1.0
+ Mean displacement error:  -1
+-Landmark loss: 0.8059637293833294
+-Wall time: 7.068033504486084 s """
++Landmark loss: 0.7676651613473052
++Wall time: 8.181469106674195 s """
+ 
+ # %%
+ 
+diff --git a/trainRegTr.py b/trainRegTr.py
+index 60d34af..65699b1 100644
+--- a/trainRegTr.py
++++ b/trainRegTr.py
+@@ -20,7 +20,7 @@ parser = argparse.ArgumentParser()
+ # General
+ parser.add_argument('--config', type=str, help='Path to the config file.')
+ # Logging
+-parser.add_argument('--logdir', type=str, default='/logs',
++parser.add_argument('--logdir', type=str, default='trainResults',
+                     help='Directory to store logs, summaries, checkpoints.')
+ parser.add_argument('--dev', action='store_true',
+                     help='If true, will ignore logdir and log to ../logdev instead')

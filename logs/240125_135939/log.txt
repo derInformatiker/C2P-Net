@@ -1,0 +1,8 @@
+01/25 13:59:39 [INFO] root - Output and logs will be saved to logs\240125_135939
+01/25 13:59:39 [INFO] regtr.cvhelpers.misc - Command: C:\Users\chenp\AppData\Roaming\Python\Python310\site-packages\ipykernel_launcher.py --f=c:\Users\chenp\AppData\Roaming\jupyter\runtime\kernel-v2-239685dIBXyjERKBa.json
+01/25 13:59:39 [INFO] regtr.cvhelpers.misc - Source is from Commit 95412c13 (2023-09-06): Fixed one small BUG in test_script.py!
+01/25 13:59:40 [INFO] regtr.cvhelpers.misc - Arguments: 
+01/25 13:59:40 [INFO] RegTR - Instantiating model RegTR
+01/25 13:59:40 [INFO] RegTR - Loss weighting: {'overlap_5': 1.0, 'feature_5': 0.1, 'corr_5': 1.0, 'feature_un': 0.0}
+01/25 13:59:40 [INFO] RegTR - Config: d_embed:64, nheads:8, pre_norm:True, use_pos_emb:True, sa_val_has_pos_emb:True, ca_val_has_pos_emb:True
+01/25 13:59:43 [INFO] CheckPointManager - Loaded models from D:/mesh2mesh/trainResults/eardataset/240107_080636_regtr_eardataset_standard_resume/ckpt/model-66000.pth

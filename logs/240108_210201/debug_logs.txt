@@ -1,0 +1,2 @@
+01/08 21:02:01 [DEBUG] git.cmd - Popen(['git', 'cat-file', '--batch-check'], cwd=d:\mesh2mesh, universal_newlines=False, shell=None, istream=<valid stream>)
+01/08 21:02:01 [DEBUG] git.cmd - Popen(['git', 'cat-file', '--batch'], cwd=d:\mesh2mesh, universal_newlines=False, shell=None, istream=<valid stream>)
